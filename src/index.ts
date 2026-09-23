@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 
+import { registerNewHireTools } from "./tools/newHire.js";
+
 function createServer() {
   const server = new McpServer({
     name: "cardiff-onboarding",
@@ -12,30 +14,28 @@ function createServer() {
     "test_connection",
     {
       description:
-        "Test whether the Cardiff Onboarding MCP server is connected and responding.",
+        "Test whether the Cardiff Onboarding MCP server is connected.",
       inputSchema: z.object({
         message: z.string().optional(),
       }),
     },
-    async ({ message }) => {
-      return {
-        content: [
-          {
-            type: "text",
-            text:
-              "Cardiff Onboarding MCP is connected successfully." +
-              (message ? ` Message received: ${message}` : ""),
-          },
-        ],
-      };
-    }
+    async ({ message }) => ({
+      content: [
+        {
+          type: "text",
+          text:
+            "Cardiff Onboarding MCP is connected." +
+            (message ? ` Message: ${message}` : ""),
+        },
+      ],
+    })
   );
+
+  registerNewHireTools(server);
 
   return server;
 }
 
 void serveStdio(createServer);
 
-// IMPORTANT: MCP stdio uses stdout for protocol messages.
-// Use console.error for debugging, never console.log.
 console.error("Cardiff Onboarding MCP running on stdio");
