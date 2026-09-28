@@ -1,49 +1,83 @@
-import type { McpServer } from "@modelcontextprotocol/server";
+import type {
+  McpServer,
+} from "@modelcontextprotocol/server";
+
 import * as z from "zod/v4";
 
-import { getNewHireFromSpreadsheet } from "../services/spreadsheet.js";
+import {
+  getGoogleSheetRow,
+} from "../services/googleSheets.js";
 
-const WORKBOOK_PATH =
-  "/Users/anthonyd/mcpServer/Onboarding/data/Rep Credentials.xlsx";
+import {
+  mapRowToNewHire,
+} from "../services/spreadsheet.js";
 
-export function registerNewHireTools(server: McpServer) {
+
+export function registerNewHireTools(
+  server: McpServer
+) {
   server.registerTool(
     "get_new_hire",
     {
       description:
-        "Read a new employee from a specific row of the Cardiff Rep Credentials onboarding spreadsheet. Returns employee and provisioning information.",
-      inputSchema: z.object({
-        row: z
-          .number()
-          .int()
-          .min(2)
-          .describe("The Excel spreadsheet row number to retrieve."),
-      }),
+        "Read a new employee from a specific row of the live Cardiff Rep Credentials Google Sheet. Returns employee and provisioning information but does not return passwords.",
+
+      inputSchema:
+        z.object({
+          row: z
+            .number()
+            .int()
+            .min(2)
+            .describe(
+              "The spreadsheet row number to retrieve."
+            ),
+        }),
     },
+
     async ({ row }) => {
       try {
-        const employee = getNewHireFromSpreadsheet(
-          WORKBOOK_PATH,
-          row
-        );
+        /*
+         * 1. Read the LIVE Google Sheet row.
+         */
+        const rawRow =
+          await getGoogleSheetRow(
+            row
+          );
+
+        /*
+         * 2. Translate Google's column names
+         *    into our NewHire structure.
+         */
+        const employee =
+          mapRowToNewHire(
+            rawRow,
+            row
+          );
 
         return {
           content: [
             {
               type: "text",
-              text: JSON.stringify(employee, null, 2),
+              text: JSON.stringify(
+                employee,
+                null,
+                2
+              ),
             },
           ],
-          structuredContent: employee,
+
+          structuredContent:
+            employee,
         };
       } catch (error) {
         const message =
           error instanceof Error
             ? error.message
-            : "Unknown spreadsheet error.";
+            : "Unknown Google Sheets error.";
 
         return {
           isError: true,
+
           content: [
             {
               type: "text",
