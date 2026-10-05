@@ -102,7 +102,7 @@ export function registerGoogleUserTools(
           await getEmployeeCredential(
             row,
             "gmPassword"
-        );
+          );
 
         const exists =
           await googleWorkspaceUserExists(
@@ -216,13 +216,13 @@ export function registerGoogleUserTools(
           mapRowToNewHire(
             rawRow,
             row
-        );
+          );
 
         const gmPassword =
           await getEmployeeCredential(
             row,
             "gmPassword"
-        );
+          );
 
         if (!employee.firstName) {
           throw new Error(
@@ -248,84 +248,211 @@ export function registerGoogleUserTools(
           );
         }
 
-        const result =
-          await createGoogleWorkspaceUser({
+
+        /*
+         * ============================================
+         * CHECK IF GOOGLE USER ALREADY EXISTS
+         * ============================================
+         *
+         * Do not treat an existing account as an error.
+         *
+         * Return a normal structured response instead.
+         */
+        const exists =
+          await googleWorkspaceUserExists(
+            employee.cardiffEmail
+          );
+
+        if (exists) {
+          const alreadyExistsResult = {
+            success:
+              false,
+
+            created:
+              false,
+
+            reason:
+              "USER_ALREADY_EXISTS",
+
             primaryEmail:
               employee.cardiffEmail,
+          };
 
-            firstName:
-              employee.firstName,
+          return {
+            content: [
+              {
+                type: "text",
 
-            lastName:
-              employee.lastName,
+                text: JSON.stringify(
+                  alreadyExistsResult,
+                  null,
+                  2
+                ),
+              },
+            ],
 
-            password:
-              gmPassword,
+            structuredContent:
+              alreadyExistsResult,
+          };
+        }
 
-            recoveryEmail:
-              employee.personalEmail,
 
-            changePasswordAtNextLogin:
-              false,
-          });
+        /*
+         * ============================================
+         * CREATE GOOGLE WORKSPACE USER
+         * ============================================
+         */
+        try {
+          const result =
+            await createGoogleWorkspaceUser({
+              primaryEmail:
+                employee.cardiffEmail,
 
-        return {
-          content: [
-            {
-              type: "text",
+              firstName:
+                employee.firstName,
 
-              text: JSON.stringify(
-                {
-                  success: true,
+              lastName:
+                employee.lastName,
 
-                  row,
+              password:
+                gmPassword,
 
-                  userCreated: {
-                    id:
-                      result.id,
+              recoveryEmail:
+                employee.personalEmail,
 
-                    primaryEmail:
-                      result.primaryEmail,
+              changePasswordAtNextLogin:
+                false,
+            });
 
-                    fullName:
-                      result.fullName,
+          return {
+            content: [
+              {
+                type: "text",
 
-                    orgUnitPath:
-                      result.orgUnitPath,
+                text: JSON.stringify(
+                  {
+                    success: true,
+
+                    created: true,
+
+                    reason:
+                      "USER_CREATED",
+
+                    row,
+
+                    userCreated: {
+                      id:
+                        result.id,
+
+                      primaryEmail:
+                        result.primaryEmail,
+
+                      fullName:
+                        result.fullName,
+
+                      orgUnitPath:
+                        result.orgUnitPath,
+                    },
+
+                    passwordReturned:
+                      false,
                   },
+                  null,
+                  2
+                ),
+              },
+            ],
 
-                  passwordReturned:
-                    false,
-                },
-                null,
-                2
-              ),
+            structuredContent: {
+              success: true,
+
+              created: true,
+
+              reason:
+                "USER_CREATED",
+
+              row,
+
+              userCreated: {
+                id:
+                  result.id,
+
+                primaryEmail:
+                  result.primaryEmail,
+
+                fullName:
+                  result.fullName,
+
+                orgUnitPath:
+                  result.orgUnitPath,
+              },
+
+              passwordReturned:
+                false,
             },
-          ],
+          };
+        } catch (error: any) {
 
-          structuredContent: {
-            success: true,
+          /*
+           * ============================================
+           * HANDLE DUPLICATE CREATION RACE CONDITION
+           * ============================================
+           *
+           * It is possible for the user to appear after
+           * our existence check but before users.insert.
+           *
+           * Google normally returns HTTP 409 in that case.
+           */
+          const status =
+            error?.code ??
+            error?.response?.status;
 
-            row,
+          const message =
+            String(
+              error?.message ?? ""
+            ).toLowerCase();
 
-            userCreated: {
-              id:
-                result.id,
+          if (
+            status === 409 ||
+            message.includes(
+              "already exists"
+            )
+          ) {
+            const alreadyExistsResult = {
+              success:
+                false,
+
+              created:
+                false,
+
+              reason:
+                "USER_ALREADY_EXISTS",
 
               primaryEmail:
-                result.primaryEmail,
+                employee.cardiffEmail,
+            };
 
-              fullName:
-                result.fullName,
+            return {
+              content: [
+                {
+                  type: "text",
 
-              orgUnitPath:
-                result.orgUnitPath,
-            },
+                  text: JSON.stringify(
+                    alreadyExistsResult,
+                    null,
+                    2
+                  ),
+                },
+              ],
 
-            passwordReturned:
-              false,
-          },
-        };
+              structuredContent:
+                alreadyExistsResult,
+            };
+          }
+
+          throw error;
+        }
+
       } catch (error) {
         const message =
           error instanceof Error
