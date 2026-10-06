@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 
 import { registerNewHireTools } from "./tools/newHire.js";
 import { registerGoogleUserTools } from "./tools/googleUser.js";
+import { registerSalesforceUserTools } from "./tools/salesforceUser.js";
 
 function createServer() {
   const server = new McpServer({
@@ -34,6 +35,7 @@ function createServer() {
 
   registerNewHireTools(server);
   registerGoogleUserTools(server);
+  registerSalesforceUserTools(server);
 
   return server;
 }

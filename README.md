@@ -1,4 +1,3 @@
-# mcpServer-onBoarding
 # Cardiff Onboarding MCP
 
 A local TypeScript MCP server for automating new-hire onboarding from a Google Sheet.
@@ -14,11 +13,17 @@ The current implementation supports:
 - Creating a Google Workspace account from the sheet
 - Retrieving employee credentials internally without returning passwords to the MCP client
 - Preventing duplicate Google account creation
+- Authenticating to Salesforce with OAuth 2.0 Client Credentials Flow
+- Running Salesforce API calls as an existing Salesforce administrator account
+- Previewing Salesforce user provisioning against the production org
+- Resolving Salesforce Profiles, Roles, and Permission Set Groups before creation
 - Keeping destructive or write operations behind an explicit confirmation step
 
-Planned integrations:
+Current integration status:
 
-- Salesforce — **TBA**
+- Google Workspace — **implemented and validated**
+- Salesforce authentication + preview — **implemented and validated**
+- Salesforce creation — **implementation in progress / validate before production use**
 - Slack — **TBA**
 - Zoom — **TBA**
 
@@ -68,6 +73,26 @@ create_google_user with confirm=true
 Google Workspace Admin SDK
 ```
 
+The current Salesforce flow is:
+
+```text
+Rep Credentials row
+   ↓
+preview_salesforce_user
+   ↓
+Salesforce REST API
+   ↓
+Check username
+Resolve Profile
+Resolve Role
+Resolve Permission Set Groups
+Check SF Password availability
+   ↓
+readyToCreate=true / false
+```
+
+Salesforce authentication is performed server-to-server with OAuth 2.0 Client Credentials Flow. The External Client App is configured with an existing Salesforce administrator as the **Run As** user, so a separate Salesforce integration-user license is not required.
+
 ---
 
 ## 2. Technology Stack
@@ -84,6 +109,8 @@ This project currently uses:
 - Google OAuth 2.0
 - Google Calendar API
 - Gmail API
+- Salesforce REST API
+- Salesforce External Client App / OAuth 2.0 Client Credentials Flow
 - dotenv
 - tsx
 
@@ -147,16 +174,20 @@ Onboarding/
 │   │   ├── googleAdmin.ts
 │   │   ├── googleOAuth.ts
 │   │   ├── googleSheets.ts
+│   │   ├── salesforceApi.ts
+│   │   ├── salesforceOAuth.ts
 │   │   └── spreadsheet.ts
 │   │
 │   ├── tools/
 │   │   ├── googleUser.ts
-│   │   └── newHire.ts
+│   │   ├── newHire.ts
+│   │   └── salesforceUser.ts
 │   │
 │   ├── scripts/
 │   │   ├── authorizeGoogle.ts
 │   │   ├── testGoogleAdmin.ts
-│   │   └── testGoogleOAuth.ts
+│   │   ├── testGoogleOAuth.ts
+│   │   └── testSalesforceOAuth.ts
 │   │
 │   └── types/
 │       └── employee.ts
@@ -186,6 +217,17 @@ GOOGLE_CLOUD_PROJECT_ID=<GOOGLE_CLOUD_PROJECT_ID>
 GOOGLE_OAUTH_CLIENT_FILE=/absolute/path/to/oauth-client.json
 GOOGLE_OAUTH_TOKEN_FILE=/absolute/path/to/oauth-token.json
 GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
+
+# Salesforce
+SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
+SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
+SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
+```
+
+For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
+
+```env
+SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
 ```
 
 Use absolute paths for credential files.
@@ -613,9 +655,242 @@ Personal Email
 
 ---
 
+# Salesforce Setup
+
+## 23. Create a Salesforce External Client App
+
+In Salesforce Setup, create an **External Client App** for the onboarding MCP.
+
+A typical configuration is:
+
+```text
+External Client App Name:
+Cardiff Onboarding MCP
+
+Enable OAuth:
+✓
+
+Enable Client Credentials Flow:
+✓
+
+OAuth Scope:
+Manage user data via APIs (api)
+```
+
+For this project, Salesforce authentication is intentionally server-to-server. Interactive Device Flow is not required.
+
+---
+
+## 24. Configure the Run As User
+
+Client Credentials Flow executes every API call as the External Client App's configured **Run As** user.
+
+Use an existing administrator account when appropriate for your organization's licensing and security model. This avoids consuming another Salesforce user license solely for the integration.
+
+Important: the MCP receives all API permissions available to the Run As user. Treat the Consumer Secret as a high-value credential.
+
+---
+
+## 25. Salesforce IP Restrictions
+
+If the External Client App policy enforces IP restrictions, make sure the machine running the MCP is allowed by Salesforce.
+
+Possible places to review include:
+
+```text
+Setup → Security → Network Access
+Setup → Profiles → <Run As Profile> → Login IP Ranges
+External Client App → Policies → IP Relaxation
+```
+
+No application-code change is required merely to whitelist an IP address.
+
+---
+
+## 26. Salesforce Environment Variables
+
+Add the following to `.env`:
+
+```env
+SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
+SALESFORCE_CLIENT_ID=<CONSUMER_KEY>
+SALESFORCE_CLIENT_SECRET=<CONSUMER_SECRET>
+```
+
+Do not commit these values.
+
+Client Credentials Flow does **not** require a Salesforce refresh-token file or an interactive browser authorization script. The MCP requests an access token directly from Salesforce when needed and can cache that token in memory for the life of the process.
+
+---
+
+## 27. Test Salesforce Authentication
+
+Run:
+
+```bash
+npx tsx src/scripts/testSalesforceOAuth.ts
+```
+
+A successful test should confirm:
+
+- Client Credentials authentication succeeded
+- The correct Salesforce instance / My Domain is being used
+- REST API access is available
+- The expected Run As user is authenticated
+
+Example safe output:
+
+```text
+Salesforce Client Credentials authentication: SUCCESS
+Instance: https://your-domain.my.salesforce.com
+Latest available API version: 68.0
+
+Authenticated Salesforce Run As user:
+{
+  userId: '005...',
+  organizationId: '00D...',
+  username: 'admin@example.com',
+  name: 'Example Admin'
+}
+
+Salesforce OAuth test completed successfully.
+```
+
+Never print or paste the Consumer Secret or access token.
+
+---
+
+## 28. Common Salesforce Authentication Error
+
+If Client Credentials Flow returns:
+
+```text
+invalid_grant: request not supported on this domain
+```
+
+check `SALESFORCE_LOGIN_URL`. Client Credentials Flow should target the org's **My Domain** URL, for example:
+
+```env
+SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
+```
+
+Do not use:
+
+```text
+https://login.salesforce.com
+https://test.salesforce.com
+https://example.lightning.force.com
+```
+
+---
+
+## 29. Salesforce User Preview
+
+The read-only MCP tool is:
+
+```text
+preview_salesforce_user
+```
+
+It reads the live onboarding row and checks:
+
+- whether Salesforce provisioning is required
+- whether the Salesforce username already exists
+- whether `SF Password` is available
+- whether the requested Profile exists
+- whether the requested Role exists
+- whether each requested Permission Set Group exists
+
+Example input:
+
+```json
+{
+  "row": 98
+}
+```
+
+Example response:
+
+```json
+{
+  "row": 98,
+  "firstName": "MCP",
+  "lastName": "Test",
+  "salesforceRequired": true,
+  "username": "mcptester@example.com",
+  "passwordAvailable": true,
+  "existingUser": false,
+  "profile": {
+    "requested": "OperationsTeam",
+    "found": true,
+    "id": "00e...",
+    "name": "OperationsTeam"
+  },
+  "role": {
+    "requested": "Underwriting",
+    "found": true,
+    "id": "00E...",
+    "name": "Underwriting"
+  },
+  "permissionSetGroups": [
+    {
+      "requested": "Sales New_Einstein",
+      "found": true,
+      "id": "0PG...",
+      "developerName": "Sales_New_Einstein",
+      "label": "Sales New_Einstein"
+    }
+  ],
+  "readyToCreate": true
+}
+```
+
+No Salesforce records are changed by the preview tool.
+
+---
+
+## 30. Salesforce Password Handling
+
+The Salesforce password comes from the onboarding sheet's **`SF Password`** column.
+
+The intended flow is:
+
+```text
+Rep Credentials
+   ↓
+SF Password
+   ↓
+getEmployeeCredential(row, "sfPassword")
+   ↓
+Salesforce User creation
+   ↓
+Salesforce user-password endpoint
+```
+
+The password is not generated by the MCP, is not stored in `.env`, and must never be returned in an MCP response.
+
+Salesforce user creation and password assignment are separate API operations. This means provisioning is not a single atomic transaction; if user creation succeeds and a later password or permission assignment fails, inspect and finish that partial user instead of blindly retrying creation.
+
+---
+
+## 31. Salesforce Defaults
+
+The current implementation uses these Salesforce user defaults unless the onboarding model is expanded later:
+
+```text
+TimeZoneSidKey: America/Los_Angeles
+LocaleSidKey: en_US
+EmailEncodingKey: ISO-8859-1
+LanguageLocaleKey: en_US
+```
+
+The Alias is generated from the employee's first initial plus last name and truncated to Salesforce's 8-character Alias limit.
+
+---
+
 # Credential Safety
 
-## 23. Password Handling
+## 32. Password Handling
 
 The onboarding spreadsheet currently contains credential fields.
 
@@ -655,7 +930,7 @@ They should never expose the actual password.
 
 ---
 
-## 24. Never Log Credentials
+## 33. Never Log Credentials
 
 Do not use:
 
@@ -676,7 +951,7 @@ Do not include credentials in:
 
 # Employee Mapping
 
-## 25. Normalized Employee Model
+## 34. Normalized Employee Model
 
 Spreadsheet rows are mapped into a normalized structure before tools use them.
 
@@ -731,7 +1006,7 @@ This prevents individual tools from needing to understand raw spreadsheet layout
 
 ---
 
-## 26. Column Mapping
+## 35. Column Mapping
 
 Spreadsheet header names are centralized in:
 
@@ -783,7 +1058,7 @@ Centralizing these values means the rest of the code does not need hard-coded sp
 
 # MCP Server
 
-## 27. What Is MCP?
+## 36. What Is MCP?
 
 MCP stands for **Model Context Protocol**.
 
@@ -811,7 +1086,7 @@ This makes the MCP server the enforcement layer for validation, approvals, and c
 
 ---
 
-## 28. Stdio Transport
+## 37. Stdio Transport
 
 The server currently runs using stdio.
 
@@ -837,7 +1112,7 @@ Standalone scripts under `src/scripts/` may use `console.log()` because they are
 
 ---
 
-## 29. Start the MCP Server Directly
+## 38. Start the MCP Server Directly
 
 To verify that the server starts:
 
@@ -859,7 +1134,7 @@ Control + C
 
 # MCP Inspector
 
-## 30. Launch MCP Inspector
+## 39. Launch MCP Inspector
 
 MCP Inspector is extremely useful while developing tools.
 
@@ -881,7 +1156,7 @@ From Inspector you can:
 
 ---
 
-## 31. CLI Inspector Debugging
+## 40. CLI Inspector Debugging
 
 If the browser Inspector reports only a generic failure, test through CLI mode.
 
@@ -913,7 +1188,7 @@ Browser Inspector problem
 
 # Current MCP Tools
 
-## 32. `get_new_hire`
+## 41. `get_new_hire`
 
 Reads a new-hire row from the live Google Sheet.
 
@@ -931,7 +1206,7 @@ Instead it reports credential availability.
 
 ---
 
-## 33. `preview_google_user`
+## 42. `preview_google_user`
 
 Read-only tool.
 
@@ -963,7 +1238,7 @@ No write is performed.
 
 ---
 
-## 34. `create_google_user`
+## 43. `create_google_user`
 
 Write tool.
 
@@ -1002,7 +1277,7 @@ Successful response example:
 
 ---
 
-## 35. Duplicate User Protection
+## 44. Duplicate User Protection
 
 Account creation checks for an existing Workspace account before attempting creation.
 
@@ -1025,12 +1300,23 @@ This makes repeated runs safer and more idempotent.
 
 # Google Workspace User Lookup
 
-## 36. Existing User Check
+## 45. Existing User Check
 
 The project uses the Workspace domain configured in:
 
 ```env
 GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
+
+# Salesforce
+SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
+SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
+SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
+```
+
+For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
+
+```env
+SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
 ```
 
 A list/search approach can be used to determine whether a user exists.
@@ -1050,7 +1336,7 @@ After creating an account, rerunning the preview should normally show:
 
 # Claude / MCP Client Setup
 
-## 37. Connecting Claude to the Local MCP Server
+## 46. Connecting Claude to the Local MCP Server
 
 The exact MCP configuration depends on which Claude client you use.
 
@@ -1079,7 +1365,7 @@ After changing MCP client configuration, fully restart the client so the MCP pro
 
 ---
 
-## 38. Claude Workflow
+## 47. Claude Workflow
 
 A recommended operator workflow is:
 
@@ -1103,7 +1389,7 @@ Do not allow the AI client to bypass preview/approval for administrative write o
 
 # Development Workflow
 
-## 39. Compile Before Restarting Inspector
+## 48. Compile Before Restarting Inspector
 
 Before restarting the MCP server:
 
@@ -1115,7 +1401,7 @@ This catches TypeScript issues before runtime.
 
 ---
 
-## 40. Restart Inspector After Code Changes
+## 49. Restart Inspector After Code Changes
 
 When changing MCP tool definitions or schemas, restart the MCP server/Inspector.
 
@@ -1123,7 +1409,7 @@ A running process does not automatically reload source changes unless you intent
 
 ---
 
-## 41. Debugging Tool Registration
+## 50. Debugging Tool Registration
 
 If the MCP server starts normally but Inspector fails when connecting, temporarily disable newly added tools.
 
@@ -1140,7 +1426,7 @@ This can quickly isolate a schema or registration problem.
 
 ---
 
-## 42. TypeScript Import Casing
+## 51. TypeScript Import Casing
 
 Be consistent with filename casing.
 
@@ -1171,7 +1457,7 @@ macOS can sometimes hide casing mistakes that later fail in TypeScript or on Lin
 
 # Common Errors
 
-## 43. `Not Authorized to access this resource/api`
+## 52. `Not Authorized to access this resource/api`
 
 This usually indicates a Google Workspace Admin authorization issue.
 
@@ -1187,7 +1473,7 @@ Remember that Google Cloud IAM access and Google Workspace Admin privileges are 
 
 ---
 
-## 44. `Invalid Input` During User Lookup
+## 53. `Invalid Input` During User Lookup
 
 If a Directory API list call fails with `Invalid Input`, verify:
 
@@ -1200,13 +1486,24 @@ Use:
 
 ```env
 GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
+
+# Salesforce
+SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
+SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
+SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
+```
+
+For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
+
+```env
+SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
 ```
 
 rather than hard-coding the domain throughout the codebase.
 
 ---
 
-## 45. MCP Inspector Shows `Failed`
+## 54. MCP Inspector Shows `Failed`
 
 First test the server directly:
 
@@ -1234,7 +1531,7 @@ Also verify that server code is not using `console.log()` during stdio execution
 
 # Security Model
 
-## 46. Principles
+## 55. Principles
 
 This project should follow these rules:
 
@@ -1250,7 +1547,7 @@ This project should follow these rules:
 
 ---
 
-## 47. Production Hardening Ideas
+## 56. Production Hardening Ideas
 
 Before treating this as a production onboarding platform, consider adding:
 
@@ -1271,22 +1568,30 @@ Before treating this as a production onboarding platform, consider adding:
 
 # Planned Integrations
 
-## 48. Salesforce — TBA
+## 57. Salesforce — Current Status
 
-Planned responsibilities may include:
+Implemented and validated:
 
-- Preview Salesforce user creation
-- Create Salesforce user
-- Set username
-- Assign profile
-- Assign role
-- Assign Permission Set Groups
-- Handle required packages or permission flags
-- Verify final access
-- Avoid duplicate users
-- Retrieve Salesforce password internally if required
+- OAuth 2.0 Client Credentials authentication
+- External Client App configured with an existing admin as Run As user
+- Production REST API connectivity
+- Read-only `preview_salesforce_user`
+- Existing-user lookup
+- Profile lookup by name
+- Role lookup by name
+- Permission Set Group lookup by label or DeveloperName
+- SF Password availability check without exposing the password
 
-Likely tool pattern:
+Next / validate before production use:
+
+- `create_salesforce_user`
+- Set the password from `SF Password`
+- Assign requested Permission Set Groups
+- Add partial-provisioning recovery / retry behavior
+- Verify the final Salesforce user
+- Add any required individual Permission Sets or managed-package handling
+
+Target tool pattern:
 
 ```text
 preview_salesforce_user
@@ -1294,11 +1599,9 @@ create_salesforce_user
 verify_salesforce_user
 ```
 
-**Implementation: TBA**
-
 ---
 
-## 49. Slack — TBA
+## 58. Slack — TBA
 
 Planned responsibilities may include:
 
@@ -1321,7 +1624,7 @@ verify_slack_user
 
 ---
 
-## 50. Zoom — TBA
+## 59. Zoom — TBA
 
 Planned responsibilities may include:
 
@@ -1430,6 +1733,19 @@ Use this when setting up the repository on a new machine.
 [ ] Verify account in Google Admin
 [ ] Rerun preview and confirm existingAccount=true
 [ ] Configure Claude / MCP client
+[ ] Create Salesforce External Client App
+[ ] Enable OAuth + Client Credentials Flow
+[ ] Add OAuth scope: Manage user data via APIs (api)
+[ ] Configure Salesforce Run As user
+[ ] Whitelist MCP host IP if Salesforce policy requires it
+[ ] Set SALESFORCE_LOGIN_URL to the org My Domain URL
+[ ] Add Salesforce Consumer Key and Consumer Secret to .env
+[ ] Run testSalesforceOAuth.ts
+[ ] Confirm authenticated Salesforce Run As user
+[ ] Test preview_salesforce_user on an existing user
+[ ] Test preview_salesforce_user on a non-existing user
+[ ] Verify Profile, Role, and Permission Set Group resolution
+[ ] Validate create_salesforce_user in a controlled test before production use
 ```
 
 ---
@@ -1475,13 +1791,42 @@ This keeps the automation understandable, testable, and much safer to operate.
 - Google OAuth foundation
 - Gmail/Calendar authorization foundation
 - MCP Inspector development workflow
+- Salesforce Client Credentials authentication
+- Salesforce production REST API connection
+- Salesforce Run As administrator authentication
+- Salesforce user preview
+- Salesforce Profile resolution
+- Salesforce Role resolution
+- Salesforce Permission Set Group resolution
+
+### In Progress
+
+- Salesforce user creation / password / Permission Set Group assignment validation
 
 ### TBA
 
-- Salesforce provisioning
 - Slack provisioning
 - Zoom provisioning
 - Onboarding email send workflow
 - Automated Calendar event scheduling
 - End-to-end onboarding orchestration
 
+
+
+## Current MCP Tools
+
+The MCP currently exposes the following tools:
+
+- `test_connection` — verifies that the MCP server is running and reachable.
+- `get_new_hire` — reads a new-hire row from the live Rep Credentials Google Sheet without returning passwords.
+- `preview_google_user` — read-only preview of the Google Workspace account that would be created, including duplicate detection and password availability.
+- `create_google_user` — creates the Google Workspace account from the live sheet, using the stored `GM Password` internally and returning a normal `USER_ALREADY_EXISTS` result when appropriate.
+- `preview_salesforce_user` — read-only Salesforce preview that checks whether Salesforce is required, verifies the username is available, resolves the requested Profile and Role, resolves Permission Set Groups, and checks whether an `SF Password` is available.
+- `create_salesforce_user` — creates the Salesforce User record, sets the password from the `SF Password` column, assigns requested Permission Set Groups, and prevents duplicate user creation.
+
+Planned tools / integrations:
+
+- Salesforce post-provisioning refinements — TBA
+- Slack provisioning — TBA
+- Zoom provisioning — TBA
+- Final onboarding email and Calendar scheduling workflow — TBA
