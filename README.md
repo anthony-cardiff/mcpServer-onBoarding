@@ -1,177 +1,71 @@
 # Cardiff Onboarding MCP
 
-A local TypeScript MCP server for automating new-hire onboarding from a Google Sheet.
+A local TypeScript MCP server that automates new-hire onboarding from a Google Sheet through Google Workspace, Salesforce, Slack, Gmail, and future integrations such as Zoom and Apple Business Manager.
 
-This project is designed to let an MCP-compatible client such as Claude read a new-hire row from the **Rep Credentials** spreadsheet, preview the work that would be performed, and then execute approved onboarding actions through connected admin APIs.
-
-The current implementation supports:
-
-- Reading a new hire from a live Google Sheet
-- Mapping onboarding fields into a normalized employee object
-- Detecting whether a Google Workspace account already exists
-- Previewing Google Workspace account creation
-- Creating a Google Workspace account from the sheet
-- Retrieving employee credentials internally without returning passwords to the MCP client
-- Preventing duplicate Google account creation
-- Authenticating to Salesforce with OAuth 2.0 Client Credentials Flow
-- Running Salesforce API calls as an existing Salesforce administrator account
-- Previewing Salesforce user provisioning against the production org
-- Resolving Salesforce Profiles, Roles, and Permission Set Groups before creation
-- Keeping destructive or write operations behind an explicit confirmation step
-
-Current integration status:
-
-- Google Workspace — **implemented and validated**
-- Salesforce authentication, preview, creation, and repair — **implemented and validated**
-- Slack SCIM provisioning — **implemented and validated**
-- Slack access email — **implemented and validated**
-- Zoom — **TBA**
-- Apple Business Manager — **TBA**
-
----
-
-## 1. Architecture Overview
-
-The onboarding workflow is intentionally split into three layers:
+The design is intentionally simple:
 
 ```text
-Google Sheet
-   ↓
-MCP Server
-   ↓
+Rep Credentials Google Sheet
+        ↓
+MCP server
+        ↓
 Preview / validation tools
-   ↓
-Approved write tools
-   ↓
-External admin APIs
+        ↓
+Explicitly approved write tools
+        ↓
+Google / Salesforce / Slack / Gmail APIs
 ```
 
-The Google Sheet is the source of truth for new-hire information.
+The spreadsheet is the source of truth. Passwords are read only when needed, are never returned in normal MCP responses, and write actions require explicit confirmation.
 
-The MCP server is responsible for:
+## Current Status
 
-1. Reading the employee row.
-2. Normalizing spreadsheet fields.
-3. Validating required values.
-4. Checking the destination system.
-5. Returning a preview.
-6. Performing a write only after explicit approval.
-7. Never returning passwords in normal MCP responses.
-
-The current Google Workspace flow is:
-
-```text
-Rep Credentials row
-   ↓
-get_new_hire
-   ↓
-preview_google_user
-   ↓
-User reviews preview
-   ↓
-create_google_user with confirm=true
-   ↓
-Google Workspace Admin SDK
-```
-
-The current Salesforce flow is:
-
-```text
-Rep Credentials row
-   ↓
-preview_salesforce_user
-   ↓
-Salesforce REST API
-   ↓
-Check username
-Resolve Profile
-Resolve Role
-Resolve Permission Set Groups
-Check SF Password availability
-   ↓
-readyToCreate=true / false
-```
-
-Salesforce authentication is performed server-to-server with OAuth 2.0 Client Credentials Flow. The External Client App is configured with an existing Salesforce administrator as the **Run As** user, so a separate Salesforce integration-user license is not required.
+| Integration | Status |
+| --- | --- |
+| Google Workspace account creation | Implemented + validated |
+| Salesforce account creation / repair | Implemented + validated |
+| Slack SCIM provisioning | Implemented + validated |
+| Slack access email | Implemented + validated |
+| Zoom | TBA |
+| Apple Business Manager | TBA |
+| Full onboarding email / Calendar workflow | TBA |
 
 ---
 
-## 2. Technology Stack
+# 1. Prerequisites
 
-This project currently uses:
+Install:
 
-- Node.js
-- TypeScript
-- ESM modules
-- MCP server SDK
-- Zod v4
-- Google Sheets API
-- Google Admin SDK Directory API
-- Google OAuth 2.0
-- Google Calendar API
-- Gmail API
-- Salesforce REST API
-- Salesforce External Client App / OAuth 2.0 Client Credentials Flow
-- Slack SCIM API
-- Gmail API for Slack access email delivery
-- dotenv
-- tsx
-
-The project is designed to run locally over **stdio**, which is the standard transport used by many local MCP clients.
-
----
-
-## 3. Prerequisites
-
-Before cloning this project, install:
-
-- Node.js 20+ recommended
+- Node.js 20+
 - npm
 - Git
-- A Google Cloud project
-- A Google Workspace administrator account
-- Access to the onboarding spreadsheet
 - An MCP-compatible client such as Claude
+- Google Workspace admin access
+- Google Cloud access
+- Salesforce admin access
+- Slack Business+ admin access
 
-This project was developed on macOS.
-
----
-
-## 4. Clone the Repository
+Clone the repo:
 
 ```bash
-git clone <YOUR_GITHUB_REPOSITORY_URL>
+git clone <YOUR_REPOSITORY_URL>
 cd Onboarding
-```
-
-Install dependencies:
-
-```bash
 npm install
-```
-
-Compile-check the TypeScript project:
-
-```bash
 npx tsc --noEmit
 ```
 
-The project should compile with no errors before you attempt to connect it to an MCP client.
+A clean compile should produce no output.
 
 ---
 
-## 5. Recommended Project Structure
-
-The project currently follows a structure similar to:
+# 2. Project Structure
 
 ```text
 Onboarding/
 ├── src/
 │   ├── index.ts
-│   │
 │   ├── config/
 │   │   └── columns.ts
-│   │
 │   ├── services/
 │   │   ├── credentials.ts
 │   │   ├── gmail.ts
@@ -182,27 +76,22 @@ Onboarding/
 │   │   ├── salesforceOAuth.ts
 │   │   ├── slackScim.ts
 │   │   └── spreadsheet.ts
-│   │
 │   ├── templates/
 │   │   └── slackInviteEmail.ts
-│   │
 │   ├── tools/
 │   │   ├── googleUser.ts
 │   │   ├── newHire.ts
 │   │   ├── salesforceUser.ts
 │   │   ├── slackInviteEmail.ts
 │   │   └── slackUser.ts
-│   │
 │   ├── scripts/
 │   │   ├── authorizeGoogle.ts
 │   │   ├── testGoogleAdmin.ts
 │   │   ├── testGoogleOAuth.ts
 │   │   ├── testSalesforceOAuth.ts
 │   │   └── testSlackScim.ts
-│   │
 │   └── types/
 │       └── employee.ts
-│
 ├── .env
 ├── .gitignore
 ├── package.json
@@ -210,69 +99,9 @@ Onboarding/
 └── README.md
 ```
 
-Do not commit service-account credentials, OAuth credentials, OAuth tokens, passwords, or exported onboarding data.
+Never commit `.env`, OAuth tokens, service-account JSON, passwords, or exported onboarding data.
 
----
-
-## 6. Environment Variables
-
-Create a `.env` file in the project root.
-
-Example:
-
-```env
-GOOGLE_SERVICE_ACCOUNT_FILE=/absolute/path/to/service-account.json
-GOOGLE_SPREADSHEET_ID=<GOOGLE_SHEET_ID>
-GOOGLE_ONBOARDING_SHEET=New Hires / New Creds
-GOOGLE_CLOUD_PROJECT_ID=<GOOGLE_CLOUD_PROJECT_ID>
-GOOGLE_OAUTH_CLIENT_FILE=/absolute/path/to/oauth-client.json
-GOOGLE_OAUTH_TOKEN_FILE=/absolute/path/to/oauth-token.json
-GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
-
-# Salesforce
-SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
-SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
-SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
-
-# Slack
-SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
-SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
-
-# Slack Access Email
-SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
-SLACK_INVITE_FROM_NAME=Your Name
-```
-
-For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
-
-```env
-SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
-```
-
-Use absolute paths for credential files.
-
-Do not put the actual credential JSON files inside the repository.
-
-A recommended macOS location is:
-
-```text
-~/.config/<project-name>/
-```
-
-For example:
-
-```text
-~/.config/cardiff-onboarding/
-├── service-account.json
-├── oauth-client.json
-└── oauth-token.json
-```
-
----
-
-## 7. `.gitignore`
-
-At minimum, exclude:
+Recommended `.gitignore` entries:
 
 ```gitignore
 node_modules/
@@ -283,514 +112,227 @@ data/
 .DS_Store
 ```
 
-You may also explicitly exclude local credential files if you ever store them near the repository:
-
-```gitignore
-*.credentials.json
-service-account.json
-oauth-client.json
-oauth-token.json
-```
-
 ---
 
-# Google Cloud Setup
+# 3. Environment Variables
 
-## 8. Create a Google Cloud Project
-
-Go to Google Cloud Console and create a project.
-
-Example naming convention:
-
-```text
-Project name: Cardiff OB MCP
-Project ID: cardiff-ob-mcp
-```
-
-Your project name and project ID do not need to match these values.
-
-Use values appropriate for your organization.
-
----
-
-## 9. Enable Required Google APIs
-
-In Google Cloud Console:
-
-**APIs & Services → Library**
-
-Enable:
-
-- Google Sheets API
-- Admin SDK API
-- Gmail API
-- Google Calendar API
-
-The current Google Workspace provisioning flow depends on:
-
-- Google Sheets API
-- Admin SDK Directory API
-
-The OAuth portions depend on:
-
-- Gmail API
-- Google Calendar API
-
----
-
-# Google Service Account Setup
-
-## 10. Create the Service Account
-
-In Google Cloud Console:
-
-**IAM & Admin → Service Accounts → Create service account**
-
-Example:
-
-```text
-Service account name:
-Cardiff OB MCP
-```
-
-After creation, note the service-account email.
-
-Example format:
-
-```text
-cardiff-onboarding@your-project-id.iam.gserviceaccount.com
-```
-
----
-
-## 11. Create a Service Account Key
-
-Open the service account.
-
-Go to:
-
-**Keys → Add key → Create new key → JSON**
-
-Download the JSON key.
-
-Move it outside the project repository.
-
-Example:
-
-```text
-~/.config/cardiff-onboarding/service-account.json
-```
-
-Then reference that file from `.env`:
+Create `.env` in the project root.
 
 ```env
-GOOGLE_SERVICE_ACCOUNT_FILE=/Users/yourname/.config/cardiff-onboarding/service-account.json
+# Google
+GOOGLE_SERVICE_ACCOUNT_FILE=/absolute/path/service-account.json
+GOOGLE_SPREADSHEET_ID=<GOOGLE_SHEET_ID>
+GOOGLE_ONBOARDING_SHEET=New Hires / New Creds
+GOOGLE_CLOUD_PROJECT_ID=<GOOGLE_CLOUD_PROJECT_ID>
+GOOGLE_OAUTH_CLIENT_FILE=/absolute/path/oauth-client.json
+GOOGLE_OAUTH_TOKEN_FILE=/absolute/path/oauth-token.json
+GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
+
+# Salesforce
+SALESFORCE_LOGIN_URL=https://your-domain.my.salesforce.com
+SALESFORCE_CLIENT_ID=<CONSUMER_KEY>
+SALESFORCE_CLIENT_SECRET=<CONSUMER_SECRET>
+
+# Slack
+SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
+SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
+
+# Slack access email
+SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
+SLACK_INVITE_FROM_NAME=Your Name
 ```
 
-Never commit this file to GitHub.
+Store credential files outside the repo, for example:
+
+```text
+~/.config/cardiff-onboarding/
+├── service-account.json
+├── oauth-client.json
+└── oauth-token.json
+```
 
 ---
 
-# Google Workspace Admin Setup
+# 4. Google Cloud + Google Workspace Setup
 
-## 12. Create a Custom Admin Role
+## Create the Google Cloud project
 
-The service account must also be authorized inside Google Workspace.
+In Google Cloud Console:
 
-This is separate from permissions inside Google Cloud.
+1. Create a project.
+2. Enable:
+   - Google Sheets API
+   - Admin SDK API
+   - Gmail API
+   - Google Calendar API
+3. Create a service account.
+4. Download its JSON key and store it outside the repo.
 
-In Google Admin Console go to:
+## Give the service account Workspace admin privileges
+
+In Google Admin:
 
 **Account → Admin roles**
 
-Create a custom role such as:
+Create a custom role with the minimum required privileges.
 
-```text
-Cardiff Onboarding MCP Provisioner
-```
-
-For the current Google account workflow, grant only the minimum privileges required.
-
-Recommended privileges:
+For the current Google user creation workflow:
 
 ```text
 Users
-  ✓ Read
-  ✓ Create
-  ✓ Update
+✓ Read
+✓ Create
+✓ Update
 
 Organizational Units
-  ✓ Read
+✓ Read
 ```
 
-Do not grant Super Admin unless there is a specific documented requirement.
+Assign that custom admin role to the service account.
 
-Do not grant delete privileges merely because the account can create users.
+This is where service-account privileges are updated later if the MCP needs additional Workspace capabilities.
 
-Use least privilege.
+## Create user OAuth credentials
 
----
+Google user OAuth is used for actions performed as your personal Google account, such as Gmail and Calendar.
 
-## 13. Assign the Service Account to the Admin Role
-
-Open the custom role you created.
-
-Assign the service-account email as an administrator/service account.
-
-Example:
+Create an OAuth client in Google Cloud and authorize these scopes:
 
 ```text
-cardiff-onboarding@your-project-id.iam.gserviceaccount.com
+https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/calendar.events
+https://www.googleapis.com/auth/calendar.freebusy
 ```
 
-For initial testing, assign the role across all organizational units if the create-user operation is expected to create users in the root OU.
-
-You can tighten the scope later.
-
-### Where to update service-account privileges later
-
-Return to:
-
-**Google Admin Console → Account → Admin roles → <your custom MCP role>**
-
-That is where Workspace privileges are changed.
-
-Google Cloud IAM and Google Workspace Admin roles are separate permission systems.
-
----
-
-## 14. Service Account vs User OAuth
-
-This project intentionally uses two Google identities.
-
-### Service account
-
-Used for machine/admin operations such as:
-
-- Reading Google Sheets
-- Looking up Workspace users
-- Creating Workspace users
-- Future admin automation
-
-### User OAuth
-
-Used for actions that should happen as a real employee, such as:
-
-- Sending onboarding email from the employee's Gmail account
-- Reading calendar availability
-- Creating the onboarding meeting
-
-This separation keeps admin operations separate from user-level actions.
-
----
-
-# Google OAuth Setup
-
-## 15. Configure the OAuth Consent Screen
-
-In Google Cloud Console:
-
-**APIs & Services → OAuth consent screen**
-
-Configure the application for your organization.
-
-If the application is in testing mode, add the intended user as a test user.
-
----
-
-## 16. Create an OAuth Client
-
-Go to:
-
-**APIs & Services → Credentials → Create credentials → OAuth client ID**
-
-Create the OAuth client used by the employee who will send onboarding emails and own calendar events.
-
-Example name:
-
-```text
-Cardiff OB MCP - Anthony
-```
-
-Download the OAuth client JSON and store it outside the repository.
-
-Example:
-
-```text
-~/.config/cardiff-onboarding/oauth-client.json
-```
-
-Reference it in `.env`:
-
-```env
-GOOGLE_OAUTH_CLIENT_FILE=/Users/yourname/.config/cardiff-onboarding/oauth-client.json
-GOOGLE_OAUTH_TOKEN_FILE=/Users/yourname/.config/cardiff-onboarding/oauth-token.json
-```
-
-The token file is generated by the authorization script.
-
-Do not manually create an empty token file.
-
----
-
-## 17. OAuth Scopes
-
-The current project uses scopes similar to:
-
-```typescript
-export const GOOGLE_USER_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.send",
-  "https://www.googleapis.com/auth/calendar.events",
-  "https://www.googleapis.com/auth/calendar.freebusy",
-];
-```
-
-These allow the authorized user to:
-
-- Send Gmail messages
-- Create/update calendar events
-- Check free/busy availability
-
-Add scopes only when a new workflow requires them.
-
----
-
-## 18. Authorize the User
-
-Run the authorization script:
+Run:
 
 ```bash
 npx tsx src/scripts/authorizeGoogle.ts
 ```
 
-A browser window should open.
-
-Sign in with the user account that should own the future onboarding email and calendar events.
-
-After successful authorization, the OAuth token is saved to the configured token path.
-
----
-
-## 19. Test User OAuth
-
-Run:
+Then test:
 
 ```bash
 npx tsx src/scripts/testGoogleOAuth.ts
-```
-
-A successful test confirms that the stored OAuth credentials can access the configured APIs.
-
----
-
-## 20. Test Google Admin SDK Access
-
-Run:
-
-```bash
 npx tsx src/scripts/testGoogleAdmin.ts
 ```
 
-A successful test confirms that:
-
-- The service account can authenticate
-- Google Workspace recognizes the service account
-- The assigned custom admin role is working
-
 ---
 
-# Google Sheet Setup
+# 5. Google Sheet Setup
 
-## 21. Spreadsheet Requirements
+The current source is a Google Sheet containing one new hire per row.
 
-The project currently expects a Google Sheet containing onboarding information.
-
-The relevant sheet/tab name is configured through:
-
-```env
-GOOGLE_ONBOARDING_SHEET=New Hires / New Creds
-```
-
-The spreadsheet ID is configured with:
-
-```env
-GOOGLE_SPREADSHEET_ID=<GOOGLE_SHEET_ID>
-```
-
-The sheet should contain fields used by the employee mapper.
-
-Current examples include:
+Important mapped fields include:
 
 ```text
 First Name
 Last Name
 Start Date
-Cell
 Personal Email
+GM User
+GM Password
 Department
 Direct Supervisor
 Title
-Location
-GM User
-GM Password
 Salesforce
 SF Role
 SF Profile
 SF Password
-Permission Set
 Permission Set Groups
-Managed Package
-Slack User Mapping
-Slack Password
 Zoom
 Direct Line
 SMS
-Zoom Password
-Computer Password
-ABM Password
+Slack Password
+Location
 ```
 
-Not every field is required for Google provisioning.
-
----
-
-## 22. Google Account Fields
-
-For the current Google account creation workflow, the important fields are:
+The code maps these headers in:
 
 ```text
-First Name
-Last Name
-GM User
-GM Password
-Personal Email
+src/config/columns.ts
 ```
 
-`GM User` is treated as the new Workspace account email.
+Passwords are accessed through:
 
-`GM Password` is retrieved internally by the MCP server.
+```typescript
+getEmployeeCredential(row, "gmPassword")
+getEmployeeCredential(row, "sfPassword")
+```
 
-`Personal Email` can be used as the recovery email.
+This keeps credentials out of normal preview responses.
 
 ---
 
-# Salesforce Setup
+# 6. Google Workspace Provisioning
 
-## 23. Create a Salesforce External Client App
-
-In Salesforce Setup, create an **External Client App** for the onboarding MCP.
-
-A typical configuration is:
+Current tools:
 
 ```text
-External Client App Name:
-Cardiff Onboarding MCP
-
-Enable OAuth:
-✓
-
-Enable Client Credentials Flow:
-✓
-
-OAuth Scope:
-Manage user data via APIs (api)
+preview_google_user
+create_google_user
 ```
 
-For this project, Salesforce authentication is intentionally server-to-server. Interactive Device Flow is not required.
-
----
-
-## 24. Configure the Run As User
-
-Client Credentials Flow executes every API call as the External Client App's configured **Run As** user.
-
-Use an existing administrator account when appropriate for your organization's licensing and security model. This avoids consuming another Salesforce user license solely for the integration.
-
-Important: the MCP receives all API permissions available to the Run As user. Treat the Consumer Secret as a high-value credential.
-
----
-
-## 25. Salesforce IP Restrictions
-
-If the External Client App policy enforces IP restrictions, make sure the machine running the MCP is allowed by Salesforce.
-
-Possible places to review include:
+Typical flow:
 
 ```text
-Setup → Security → Network Access
-Setup → Profiles → <Run As Profile> → Login IP Ranges
-External Client App → Policies → IP Relaxation
+Spreadsheet row
+   ↓
+preview_google_user
+   ↓
+Check fields + existing account
+   ↓
+create_google_user confirm=true
 ```
 
-No application-code change is required merely to whitelist an IP address.
+The Google account uses:
 
----
+- First Name
+- Last Name
+- GM User as the primary email
+- GM Password from the sheet
+- Personal Email as recovery email
 
-## 26. Salesforce Environment Variables
+Duplicate users return a normal structured result instead of failing.
 
-Add the following to `.env`:
+Example:
 
-```env
-SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
-SALESFORCE_CLIENT_ID=<CONSUMER_KEY>
-SALESFORCE_CLIENT_SECRET=<CONSUMER_SECRET>
-```
-
-Do not commit these values.
-
-Client Credentials Flow does **not** require a Salesforce refresh-token file or an interactive browser authorization script. The MCP requests an access token directly from Salesforce when needed and can cache that token in memory for the life of the process.
-
----
-
-## 27. Test Salesforce Authentication
-
-Run:
-
-```bash
-npx tsx src/scripts/testSalesforceOAuth.ts
-```
-
-A successful test should confirm:
-
-- Client Credentials authentication succeeded
-- The correct Salesforce instance / My Domain is being used
-- REST API access is available
-- The expected Run As user is authenticated
-
-Example safe output:
-
-```text
-Salesforce Client Credentials authentication: SUCCESS
-Instance: https://your-domain.my.salesforce.com
-Latest available API version: 68.0
-
-Authenticated Salesforce Run As user:
+```json
 {
-  userId: '005...',
-  organizationId: '00D...',
-  username: 'admin@example.com',
-  name: 'Example Admin'
+  "success": false,
+  "created": false,
+  "reason": "USER_ALREADY_EXISTS",
+  "primaryEmail": "user@cardiff.co"
 }
-
-Salesforce OAuth test completed successfully.
 ```
-
-Never print or paste the Consumer Secret or access token.
 
 ---
 
-## 28. Common Salesforce Authentication Error
+# 7. Salesforce Setup
 
-If Client Credentials Flow returns:
+## External Client App
+
+Use a Salesforce **External Client App** with:
 
 ```text
-invalid_grant: request not supported on this domain
+Enable OAuth                     ✓
+Enable Client Credentials Flow   ✓
+OAuth Scope:
+Manage user data via APIs        ✓
 ```
 
-check `SALESFORCE_LOGIN_URL`. Client Credentials Flow should target the org's **My Domain** URL, for example:
+Set the **Run As** user to an existing Salesforce admin account.
+
+This avoids consuming a separate Salesforce license for the integration itself.
+
+## Important: use My Domain
+
+Client Credentials Flow must use your Salesforce My Domain URL.
+
+Correct:
 
 ```env
-SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
+SALESFORCE_LOGIN_URL=https://cardiff.my.salesforce.com
 ```
 
 Do not use:
@@ -798,861 +340,65 @@ Do not use:
 ```text
 https://login.salesforce.com
 https://test.salesforce.com
-https://example.lightning.force.com
+*.lightning.force.com
+```
+
+## Test Salesforce authentication
+
+```bash
+npx tsx src/scripts/testSalesforceOAuth.ts
+```
+
+Expected result:
+
+```text
+Salesforce Client Credentials authentication: SUCCESS
+Authenticated Salesforce Run As user: ...
 ```
 
 ---
 
-## 29. Salesforce User Preview
+# 8. Salesforce Provisioning
 
-The read-only MCP tool is:
+Current tools:
 
 ```text
 preview_salesforce_user
+create_salesforce_user
 ```
 
-It reads the live onboarding row and checks:
+The preview resolves:
 
-- whether Salesforce provisioning is required
-- whether the Salesforce username already exists
-- whether `SF Password` is available
-- whether the requested Profile exists
-- whether the requested Role exists
-- whether each requested Permission Set Group exists
+- Username
+- Profile
+- Role
+- Permission Set Groups
+- Existing user status
+- SF Password availability
 
-Example input:
+The create tool:
 
-```json
-{
-  "row": 98
-}
-```
+1. Creates the User if missing.
+2. Sets the password from the `SF Password` column.
+3. Assigns missing Permission Set Groups.
+4. Reuses an existing user if a previous provisioning attempt only partially completed.
 
-Example response:
+The flow is idempotent.
 
-```json
-{
-  "row": 98,
-  "firstName": "MCP",
-  "lastName": "Test",
-  "salesforceRequired": true,
-  "username": "mcptester@example.com",
-  "passwordAvailable": true,
-  "existingUser": false,
-  "profile": {
-    "requested": "OperationsTeam",
-    "found": true,
-    "id": "00e...",
-    "name": "OperationsTeam"
-  },
-  "role": {
-    "requested": "Underwriting",
-    "found": true,
-    "id": "00E...",
-    "name": "Underwriting"
-  },
-  "permissionSetGroups": [
-    {
-      "requested": "Sales New_Einstein",
-      "found": true,
-      "id": "0PG...",
-      "developerName": "Sales_New_Einstein",
-      "label": "Sales New_Einstein"
-    }
-  ],
-  "readyToCreate": true
-}
-```
-
-No Salesforce records are changed by the preview tool.
-
----
-
-## 30. Salesforce Password Handling
-
-The Salesforce password comes from the onboarding sheet's **`SF Password`** column.
-
-The intended flow is:
-
-```text
-Rep Credentials
-   ↓
-SF Password
-   ↓
-getEmployeeCredential(row, "sfPassword")
-   ↓
-Salesforce User creation
-   ↓
-Salesforce user-password endpoint
-```
-
-The password is not generated by the MCP, is not stored in `.env`, and must never be returned in an MCP response.
-
-Salesforce user creation and password assignment are separate API operations. This means provisioning is not a single atomic transaction; if user creation succeeds and a later password or permission assignment fails, inspect and finish that partial user instead of blindly retrying creation.
-
----
-
-## 31. Salesforce Defaults
-
-The current implementation uses these Salesforce user defaults unless the onboarding model is expanded later:
-
-```text
-TimeZoneSidKey: America/Los_Angeles
-LocaleSidKey: en_US
-EmailEncodingKey: ISO-8859-1
-LanguageLocaleKey: en_US
-```
-
-The Alias is generated from the employee's first initial plus last name and truncated to Salesforce's 8-character Alias limit.
-
----
-
-# Credential Safety
-
-## 32. Password Handling
-
-The onboarding spreadsheet currently contains credential fields.
-
-These credentials must never be returned by normal MCP tools.
-
-The project uses a protected helper such as:
-
-```typescript
-await getEmployeeCredential(
-  row,
-  "gmPassword"
-);
-```
-
-Other supported credential keys may include:
-
-```text
-gmPassword
-sfPassword
-computerPassword
-abmPassword
-slackPassword
-zoomPassword
-```
-
-This provides one controlled place for credential access.
-
-Normal tools should expose only whether a credential exists:
-
-```json
-{
-  "passwordAvailable": true
-}
-```
-
-They should never expose the actual password.
-
----
-
-## 33. Never Log Credentials
-
-Do not use:
-
-```typescript
-console.log(password);
-```
-
-Do not include credentials in:
-
-- MCP tool responses
-- structuredContent
-- error messages
-- logs
-- GitHub issues
-- screenshots
-
----
-
-# Employee Mapping
-
-## 34. Normalized Employee Model
-
-Spreadsheet rows are mapped into a normalized structure before tools use them.
-
-Example shape:
-
-```typescript
-export interface NewHire {
-  row: number;
-  firstName?: string;
-  lastName?: string;
-  startDate?: string;
-  phone?: string;
-  personalEmail?: string;
-  cardiffEmail?: string;
-  department?: string;
-  manager?: string;
-  title?: string;
-  location?: string;
-
-  salesforce: {
-    username?: string;
-    role?: string;
-    profile?: string;
-    userRequired?: boolean;
-    permissionSetRequired?: boolean;
-    permissionSetGroups: string[];
-    managedPackageRequired?: boolean;
-  };
-
-  slack: {
-    userMapping?: string;
-  };
-
-  zoom: {
-    accountRequired?: boolean;
-    directLineRequired?: boolean;
-    smsRequired?: boolean;
-  };
-
-  credentialsAvailable: {
-    gmPassword: boolean;
-    sfPassword: boolean;
-    computerPassword: boolean;
-    abmPassword: boolean;
-    slackPassword: boolean;
-    zoomPassword: boolean;
-  };
-}
-```
-
-This prevents individual tools from needing to understand raw spreadsheet layout.
-
----
-
-## 35. Column Mapping
-
-Spreadsheet header names are centralized in:
-
-```text
-src/config/columns.ts
-```
-
-Example:
-
-```typescript
-export const COLUMNS = {
-  firstName: "First Name",
-  lastName: "Last Name",
-  startDate: "Start Date",
-  phone: "Cell",
-  personalEmail: "Personal Email",
-  cardiffEmail: "GM User",
-  department: "Department",
-  manager: "Direct Supervisor",
-  title: "Title",
-  location: "Location",
-
-  salesforceUsername: "GM User",
-  salesforceUserRequired: "Salesforce",
-  salesforceRole: "SF Role",
-  salesforceProfile: "SF Profile",
-  permissionSetRequired: "Permission Set",
-  permissionSetGroups: "Permission Set Groups",
-  managedPackageRequired: "Managed Package",
-
-  slackUserMapping: "Slack User Mapping",
-
-  zoomAccountRequired: "Zoom",
-  zoomDirectLineRequired: "Direct Line",
-  zoomSmsRequired: "SMS",
-
-  gmPassword: "GM Password",
-  sfPassword: "SF Password",
-  computerPassword: "Computer Password",
-  abmPassword: "ABM Password",
-  slackPassword: "Slack Password",
-  zoomPassword: "Zoom Password",
-};
-```
-
-Centralizing these values means the rest of the code does not need hard-coded spreadsheet column positions.
-
----
-
-# MCP Server
-
-## 36. What Is MCP?
-
-MCP stands for **Model Context Protocol**.
-
-It allows an AI client to discover and call tools provided by another process.
-
-In this project, the onboarding application acts as an MCP server.
-
-Claude or another MCP client acts as the MCP client.
-
-The MCP client does not directly manipulate Google Workspace.
-
-Instead:
-
-```text
-Claude
-  ↓
-MCP tool call
-  ↓
-Onboarding MCP server
-  ↓
-Google API
-```
-
-This makes the MCP server the enforcement layer for validation, approvals, and credential handling.
-
----
-
-## 37. Stdio Transport
-
-The server currently runs using stdio.
-
-That means the MCP protocol communicates over the process's standard input and standard output streams.
-
-Because stdout is reserved for MCP protocol traffic, avoid ordinary logging to stdout in server code.
-
-Prefer:
-
-```typescript
-console.error("Cardiff Onboarding MCP running on stdio");
-```
-
-Avoid startup logging like:
-
-```typescript
-console.log("Server started");
-```
-
-A normal `console.log()` can corrupt the stdio MCP protocol stream.
-
-Standalone scripts under `src/scripts/` may use `console.log()` because they are not running as the MCP server.
-
----
-
-## 38. Start the MCP Server Directly
-
-To verify that the server starts:
-
-```bash
-npx tsx src/index.ts
-```
-
-A healthy stdio MCP server normally appears to "sit there" waiting for an MCP client.
-
-That is expected.
-
-Stop it with:
-
-```text
-Control + C
-```
-
----
-
-# MCP Inspector
-
-## 39. Launch MCP Inspector
-
-MCP Inspector is extremely useful while developing tools.
-
-Run:
-
-```bash
-npx @modelcontextprotocol/inspector npx tsx src/index.ts
-```
-
-The browser UI should open.
-
-From Inspector you can:
-
-- Connect to the server
-- List tools
-- Call tools manually
-- Inspect structured responses
-- Test input schemas
-
----
-
-## 40. CLI Inspector Debugging
-
-If the browser Inspector reports only a generic failure, test through CLI mode.
-
-Handshake test:
-
-```bash
-npx @modelcontextprotocol/inspector --cli npx tsx src/index.ts --method initialize
-```
-
-Tool-list test:
-
-```bash
-npx @modelcontextprotocol/inspector --cli npx tsx src/index.ts --method tools/list
-```
-
-This helps separate:
-
-```text
-Server startup problem
-vs.
-MCP protocol problem
-vs.
-Tool registration/schema problem
-vs.
-Browser Inspector problem
-```
-
----
-
-# Current MCP Tools
-
-## 41. `get_new_hire`
-
-Reads a new-hire row from the live Google Sheet.
-
-Example input:
-
-```json
-{
-  "row": 98
-}
-```
-
-The result contains normalized employee data but does not return passwords.
-
-Instead it reports credential availability.
-
----
-
-## 42. `preview_google_user`
-
-Read-only tool.
-
-It:
-
-1. Reads the live employee row.
-2. Maps the employee.
-3. Checks whether a GM password exists.
-4. Checks Google Workspace for the requested account.
-5. Reports whether account creation is ready.
-
-Example response:
-
-```json
-{
-  "row": 98,
-  "firstName": "MCP",
-  "lastName": "Test",
-  "primaryEmail": "mcptester@example.com",
-  "personalEmail": "employee@example.net",
-  "passwordAvailable": true,
-  "changePasswordAtNextLogin": false,
-  "existingAccount": false,
-  "readyToCreate": true
-}
-```
-
-No write is performed.
-
----
-
-## 43. `create_google_user`
-
-Write tool.
-
-Requires explicit confirmation.
-
-Example input:
-
-```json
-{
-  "row": 98,
-  "confirm": true
-}
-```
-
-The tool retrieves the GM password internally and calls Google Workspace Admin SDK `users.insert`.
-
-The password is not returned.
-
-Successful response example:
+If the user already exists, the tool can repair the provisioning instead of stopping:
 
 ```json
 {
   "success": true,
-  "created": true,
-  "reason": "USER_CREATED",
-  "row": 98,
-  "userCreated": {
-    "id": "<GOOGLE_USER_ID>",
-    "primaryEmail": "mcptester@example.com",
-    "fullName": "MCP Test",
-    "orgUnitPath": "/"
-  },
-  "passwordReturned": false
-}
-```
-
----
-
-## 44. Duplicate User Protection
-
-Account creation checks for an existing Workspace account before attempting creation.
-
-If the account already exists, the tool returns a normal structured response rather than a tool failure:
-
-```json
-{
-  "success": false,
   "created": false,
-  "reason": "USER_ALREADY_EXISTS",
-  "primaryEmail": "mcptester@example.com"
+  "repaired": true,
+  "reason": "USER_REPAIRED"
 }
 ```
 
-The create flow also handles a possible HTTP 409 race condition in case the account is created between the existence check and the `users.insert` call.
+It also handles Salesforce's `invalid repeated password` response as success when the requested password is already current.
 
-This makes repeated runs safer and more idempotent.
-
----
-
-# Google Workspace User Lookup
-
-## 45. Existing User Check
-
-The project uses the Workspace domain configured in:
-
-```env
-GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
-
-# Salesforce
-SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
-SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
-SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
-
-# Slack
-SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
-SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
-
-# Slack Access Email
-SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
-SLACK_INVITE_FROM_NAME=Your Name
-```
-
-For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
-
-```env
-SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
-```
-
-A list/search approach can be used to determine whether a user exists.
-
-This avoids depending entirely on a direct `users.get()` call for unknown addresses.
-
-After creating an account, rerunning the preview should normally show:
-
-```json
-{
-  "existingAccount": true,
-  "readyToCreate": false
-}
-```
-
----
-
-# Claude / MCP Client Setup
-
-## 46. Connecting Claude to the Local MCP Server
-
-The exact MCP configuration depends on which Claude client you use.
-
-A typical local stdio configuration looks conceptually like:
-
-```json
-{
-  "mcpServers": {
-    "cardiff-onboarding": {
-      "command": "npx",
-      "args": [
-        "tsx",
-        "/absolute/path/to/Onboarding/src/index.ts"
-      ],
-      "cwd": "/absolute/path/to/Onboarding"
-    }
-  }
-}
-```
-
-Use absolute paths.
-
-If your client supports environment variables in the MCP configuration, they may be passed there. Otherwise, the project loads them from `.env`.
-
-After changing MCP client configuration, fully restart the client so the MCP process is relaunched.
-
----
-
-## 47. Claude Workflow
-
-A recommended operator workflow is:
-
-```text
-User asks Claude to onboard employee row X
-   ↓
-Claude calls get_new_hire
-   ↓
-Claude calls preview_google_user
-   ↓
-Claude explains what will happen
-   ↓
-Human approves
-   ↓
-Claude calls create_google_user with confirm=true
-```
-
-Do not allow the AI client to bypass preview/approval for administrative write operations.
-
----
-
-# Development Workflow
-
-## 48. Compile Before Restarting Inspector
-
-Before restarting the MCP server:
-
-```bash
-npx tsc --noEmit
-```
-
-This catches TypeScript issues before runtime.
-
----
-
-## 49. Restart Inspector After Code Changes
-
-When changing MCP tool definitions or schemas, restart the MCP server/Inspector.
-
-A running process does not automatically reload source changes unless you intentionally use a watch/reload setup.
-
----
-
-## 50. Debugging Tool Registration
-
-If the MCP server starts normally but Inspector fails when connecting, temporarily disable newly added tools.
-
-For example:
-
-```typescript
-registerNewHireTools(server);
-// registerGoogleUserTools(server);
-```
-
-Then test `tools/list` again.
-
-This can quickly isolate a schema or registration problem.
-
----
-
-## 51. TypeScript Import Casing
-
-Be consistent with filename casing.
-
-For example, if the file is:
-
-```text
-src/services/googleSheets.ts
-```
-
-then import it as:
-
-```typescript
-import {
-  getGoogleSheetRow,
-} from "../services/googleSheets.js";
-```
-
-Do not mix:
-
-```text
-googleSheets.ts
-googlesheets.ts
-```
-
-macOS can sometimes hide casing mistakes that later fail in TypeScript or on Linux.
-
----
-
-# Common Errors
-
-## 52. `Not Authorized to access this resource/api`
-
-This usually indicates a Google Workspace Admin authorization issue.
-
-Check:
-
-1. Admin SDK API is enabled.
-2. The service account is assigned to the Workspace custom admin role.
-3. The role includes the required Users privileges.
-4. The role assignment covers the relevant organizational unit.
-5. The service-account email is the same one referenced by the key file.
-
-Remember that Google Cloud IAM access and Google Workspace Admin privileges are separate.
-
----
-
-## 53. `Invalid Input` During User Lookup
-
-If a Directory API list call fails with `Invalid Input`, verify:
-
-- The configured Workspace domain is correct.
-- The API request uses that domain.
-- The email lookup syntax is valid.
-- The email belongs to the intended Workspace domain.
-
-Use:
-
-```env
-GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
-
-# Salesforce
-SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
-SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
-SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
-
-# Slack
-SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
-SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
-
-# Slack Access Email
-SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
-SLACK_INVITE_FROM_NAME=Your Name
-```
-
-For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
-
-```env
-SALESFORCE_LOGIN_URL=https://example.my.salesforce.com
-```
-
-rather than hard-coding the domain throughout the codebase.
-
----
-
-## 54. MCP Inspector Shows `Failed`
-
-First test the server directly:
-
-```bash
-npx tsx src/index.ts
-```
-
-If it remains running, the MCP process is likely healthy.
-
-Then test:
-
-```bash
-npx @modelcontextprotocol/inspector --cli npx tsx src/index.ts --method initialize
-```
-
-and:
-
-```bash
-npx @modelcontextprotocol/inspector --cli npx tsx src/index.ts --method tools/list
-```
-
-Also verify that server code is not using `console.log()` during stdio execution.
-
----
-
-# Security Model
-
-## 55. Principles
-
-This project should follow these rules:
-
-- Preview before write.
-- Explicit confirmation before provisioning.
-- Never return passwords.
-- Never log passwords.
-- Keep secrets outside Git.
-- Use least-privilege admin roles.
-- Use separate identities for machine/admin actions and user-owned actions.
-- Make create operations safe to retry.
-- Return structured reasons such as `USER_ALREADY_EXISTS` instead of unnecessary tool failures.
-
----
-
-## 56. Production Hardening Ideas
-
-Before treating this as a production onboarding platform, consider adding:
-
-- Audit logging without secrets
-- Per-action timestamps
-- Approval records
-- Row-level onboarding status
-- Retry handling
-- API rate-limit handling
-- Better validation of corporate email domains
-- Protected secret storage instead of spreadsheet passwords
-- Role-based access to the MCP client
-- Test and sandbox environments
-- Automated integration tests
-- Idempotency checks for every destination system
-
----
-
-# Planned Integrations
-
-## 57. Salesforce — Current Status
-
-Implemented and validated:
-
-- OAuth 2.0 Client Credentials authentication
-- External Client App configured with an existing admin as Run As user
-- Production REST API connectivity
-- Read-only `preview_salesforce_user`
-- Existing-user lookup
-- Profile lookup by name
-- Role lookup by name
-- Permission Set Group lookup by label or DeveloperName
-- SF Password availability check without exposing the password
-- `create_salesforce_user`
-- Salesforce User creation
-- Password setting from the `SF Password` spreadsheet column
-- Permission Set Group assignment
-- Duplicate-user protection
-- Partial-provisioning repair / resume behavior
-- Existing password detection by treating Salesforce `invalid repeated password` as an already-complete password step
-- Existing Permission Set Group detection so assignments are not duplicated
-- Safe mismatch checks for an existing user's Profile or Role before repair continues
-
-The creation / repair flow is intentionally idempotent:
-
-```text
-User does not exist
-   ↓
-Create Salesforce User
-   ↓
-Set password from SF Password
-   ↓
-Assign missing Permission Set Groups
-   ↓
-USER_CREATED
-
-User already exists
-   ↓
-Reuse existing User Id
-   ↓
-Set / verify password from SF Password
-   ↓
-Keep existing Permission Set Groups
-   ↓
-Assign only missing groups
-   ↓
-USER_REPAIRED
-```
-
-Current Salesforce defaults used for newly created users:
+Current default user settings:
 
 ```text
 TimeZoneSidKey: America/Los_Angeles
@@ -1661,328 +407,243 @@ EmailEncodingKey: ISO-8859-1
 LanguageLocaleKey: en_US
 ```
 
-The Salesforce password is never generated by the MCP. It is read at runtime from the employee's `SF Password` column through `getEmployeeCredential(row, "sfPassword")`, sent directly to Salesforce, and never returned in MCP output.
-
 ---
 
-## 58. Slack — Current Status
+# 9. Slack Setup
 
-Implemented and validated on Slack Business+:
+Slack provisioning currently uses the **SCIM API** on the Business+ plan.
 
-- Slack SCIM authentication using a user OAuth token
-- Read-only `preview_slack_user`
-- Slack member lookup by Cardiff email
-- `create_slack_user` through the Slack SCIM API
-- Duplicate-account protection
-- Google Workspace SSO remains the employee login method
-- No Slack password is generated or stored
-- Separate Slack access email sent through Gmail
-- Read-only `preview_slack_invite_email`
-- `send_slack_invite_email` with explicit confirmation
-- Slack access email is sent to the employee's Cardiff email address, not their personal email
-- Slack workspace link is included in the email
+Create a Slack app and obtain a **User OAuth Token** with the required admin/SCIM access.
 
-Slack workspace used by the current Cardiff implementation:
-
-```text
-https://cardiff-duq1447.slack.com/
-```
-
-### Why SCIM is used
-
-Slack's Enterprise-only `admin.users.invite` API is not available on Business+. SCIM is available on Business+ and is used to provision the workspace member. Because SCIM does not reliably send the standard Slack invitation email, the MCP sends a separate Slack access email from the onboarding administrator's Gmail account.
-
-Current Slack flow:
-
-```text
-Rep Credentials row
-   ↓
-preview_slack_user
-   ↓
-create_slack_user
-   ↓
-Slack SCIM provisions member
-   ↓
-preview_slack_invite_email
-   ↓
-send_slack_invite_email
-   ↓
-Employee receives email in Cardiff mailbox
-   ↓
-Employee opens Slack workspace link
-   ↓
-Employee signs in with Google Workspace SSO
-```
-
-### Slack token requirements
-
-The SCIM token is stored only in `.env`:
+Store the token in:
 
 ```env
 SLACK_SCIM_TOKEN=xoxp-...
 ```
 
-Do not commit this token. The token must belong to a Slack Workspace Admin or Owner and must continue to have the privileges required for SCIM provisioning.
+Test it with:
 
-### Slack access email
-
-The Slack access message is intentionally separate from the future full onboarding email. The current files are:
-
-```text
-src/templates/slackInviteEmail.ts
-src/services/gmail.ts
-src/tools/slackInviteEmail.ts
+```bash
+npx tsx src/scripts/testSlackScim.ts
 ```
 
-The tools are:
+Current tools:
+
+```text
+preview_slack_user
+create_slack_user
+```
+
+The SCIM flow creates the Slack member. Cardiff users then authenticate with Google Workspace SSO.
+
+No Slack password is generated by the MCP.
+
+---
+
+# 10. Slack Access Email
+
+SCIM provisioning does not reliably send Slack's standard invitation email, so this project sends a separate access email through Gmail.
+
+Current tools:
 
 ```text
 preview_slack_invite_email
 send_slack_invite_email
 ```
 
-The email is sent from the configured administrator address and goes to the employee's new Cardiff mailbox so they see it when they first sign in on onboarding day. The reusable Gmail service is generic so it can later support other onboarding emails as well.
+The email:
 
-The HTML template currently includes a prominent Slack sign-in call-to-action. It can be styled further or enhanced with an embedded logo later.
+- Is sent from the configured Cardiff Gmail account.
+- Is sent to the employee's new `@cardiff.co` mailbox.
+- Contains the Slack workspace link.
+- Tells the user to sign in with Google SSO.
+
+Template:
+
+```text
+src/templates/slackInviteEmail.ts
+```
+
+The current Cardiff Slack URL is configured through:
+
+```env
+SLACK_WORKSPACE_URL=https://cardiff-duq1447.slack.com/
+```
+
+The template can use a large HTML button for the Slack link.
 
 ---
 
-## 59. Zoom — TBA
+# 11. MCP Server + Claude / Inspector
 
-Planned responsibilities may include:
+Compile first:
 
-- Preview Zoom user creation
-- Create the Zoom user
-- Assign licensing
-- Configure direct phone number when requested
-- Configure SMS when requested
-- Verify provisioning
-
-Sheet flags already support concepts such as:
-
-```text
-Zoom
-Direct Line
-SMS
+```bash
+npx tsc --noEmit
 ```
 
-Likely tool pattern:
+Run the MCP directly:
+
+```bash
+npx tsx src/index.ts
+```
+
+A healthy stdio server should remain running.
+
+Do not use `console.log()` inside normal MCP server startup/tool code because stdout is the MCP protocol channel. Use `console.error()` for server diagnostics.
+
+For development, launch MCP Inspector:
+
+```bash
+npx @modelcontextprotocol/inspector npx tsx src/index.ts
+```
+
+Useful CLI checks:
+
+```bash
+npx @modelcontextprotocol/inspector --cli npx tsx src/index.ts --method initialize
+npx @modelcontextprotocol/inspector --cli npx tsx src/index.ts --method tools/list
+```
+
+For Claude Desktop or another MCP client, configure the server command to run:
+
+```text
+npx tsx /absolute/path/to/Onboarding/src/index.ts
+```
+
+---
+
+# 12. Current MCP Tools
+
+## Core
+
+```text
+test_connection
+get_new_hire
+```
+
+## Google Workspace
+
+```text
+preview_google_user
+create_google_user
+```
+
+## Salesforce
+
+```text
+preview_salesforce_user
+create_salesforce_user
+```
+
+## Slack
+
+```text
+preview_slack_user
+create_slack_user
+preview_slack_invite_email
+send_slack_invite_email
+```
+
+All write tools require an explicit confirmation input.
+
+---
+
+# 13. Common Troubleshooting
+
+## MCP Inspector shows Failed
+
+Run the server directly:
+
+```bash
+npx tsx src/index.ts
+```
+
+If it stays running, test MCP initialization and tool listing with Inspector CLI.
+
+Also make sure startup/tool code is not writing to stdout with `console.log()`.
+
+## Google `Not Authorized`
+
+Check the service account's custom admin role in Google Admin and confirm its OU scope allows the target user.
+
+## Google `Invalid Input`
+
+For user searches, use the Workspace domain explicitly rather than relying on `my_customer` if your environment rejects it.
+
+## Salesforce `invalid_grant: request not supported on this domain`
+
+Use your Salesforce My Domain URL in `SALESFORCE_LOGIN_URL`.
+
+## Salesforce `invalid repeated password`
+
+The supplied password is already the current password. The provisioning code treats this as success during repair runs.
+
+## Slack user created but no invite email arrives
+
+Expected with SCIM. Use `send_slack_invite_email` to send the Cardiff Slack sign-in link separately.
+
+---
+
+# 14. Security Model
+
+This project intentionally separates read-only and write behavior.
+
+Recommended rules:
+
+- Always preview before writing.
+- Require `confirm: true` for create/send tools.
+- Never log passwords or OAuth tokens.
+- Keep `.env` and credential files out of Git.
+- Use the minimum necessary admin privileges.
+- Store Google credential files outside the repository.
+- Treat Salesforce Consumer Secrets and Slack OAuth tokens as production secrets.
+
+---
+
+# 15. Planned Integrations
+
+## Zoom — TBA
+
+Planned capabilities may include:
 
 ```text
 preview_zoom_user
 create_zoom_user
-verify_zoom_user
+assign direct line
+configure SMS
 ```
 
-**Implementation: TBA**
+## Apple Business Manager — TBA
+
+Planned onboarding support may include Apple Business account creation or browser automation if the required operation is not exposed through an appropriate API.
+
+## Full Onboarding Email / Calendar — TBA
+
+A future workflow will be separate from the Slack access email and may include:
+
+- Google credentials / instructions
+- Salesforce information
+- Zoom information
+- Apple Business information
+- Onboarding instructions
+- A scheduled one-hour Google Calendar onboarding meeting
 
 ---
 
-# Future Final Onboarding Workflow
+# 16. Recommended Development Pattern
 
-Once Salesforce, Slack, and Zoom are implemented, the target workflow is approximately:
+For every new integration, follow the same sequence:
 
 ```text
-Read employee row
-   ↓
-Validate onboarding data
-   ↓
-Preview Google account
-   ↓
-Create Google account
-   ↓
-Preview Salesforce user
-   ↓
-Create Salesforce user
-   ↓
-Preview Slack user
-   ↓
-Create Slack user
-   ↓
-Preview Slack access email
-   ↓
-Send Slack access email to Cardiff mailbox
-   ↓
-Preview Zoom user
-   ↓
-Create Zoom user
-   ↓
-Send final onboarding email from authorized Gmail account
-   ↓
-Check onboarding owner's Calendar availability
-   ↓
-Create one-hour onboarding meeting on employee start date
-   ↓
-Invite employee personal email + new company email
-   ↓
-Verify onboarding completion
+1. Authenticate
+2. Test read-only API access
+3. Build preview_<system> tool
+4. Validate against real data
+5. Build confirmed write tool
+6. Add duplicate / retry protection
+7. Test with a controlled onboarding row
+8. Update this README
 ```
 
-The AI should propose actions and times, while sensitive writes remain behind explicit human approval.
-
----
-
-# Example Setup Checklist
-
-Use this when setting up the repository on a new machine.
-
-```text
-[ ] Install Node.js and npm
-[ ] Clone repository
-[ ] npm install
-[ ] Create .env
-[ ] Create Google Cloud project
-[ ] Enable Sheets API
-[ ] Enable Admin SDK API
-[ ] Enable Gmail API
-[ ] Enable Calendar API
-[ ] Create service account
-[ ] Download service-account JSON
-[ ] Store service-account JSON outside repo
-[ ] Create Google Workspace custom admin role
-[ ] Assign service account to admin role
-[ ] Create OAuth client
-[ ] Store OAuth client JSON outside repo
-[ ] Run authorizeGoogle.ts
-[ ] Run testGoogleOAuth.ts
-[ ] Run testGoogleAdmin.ts
-[ ] Configure spreadsheet ID
-[ ] Configure sheet tab name
-[ ] Configure Workspace domain
-[ ] npx tsc --noEmit
-[ ] Start MCP server directly
-[ ] Test MCP Inspector initialize
-[ ] Test MCP Inspector tools/list
-[ ] Test get_new_hire
-[ ] Test preview_google_user on existing account
-[ ] Test preview_google_user on non-existing account
-[ ] Test create_google_user with a controlled test row
-[ ] Verify account in Google Admin
-[ ] Rerun preview and confirm existingAccount=true
-[ ] Configure Claude / MCP client
-[ ] Create Salesforce External Client App
-[ ] Enable OAuth + Client Credentials Flow
-[ ] Add OAuth scope: Manage user data via APIs (api)
-[ ] Configure Salesforce Run As user
-[ ] Whitelist MCP host IP if Salesforce policy requires it
-[ ] Set SALESFORCE_LOGIN_URL to the org My Domain URL
-[ ] Add Salesforce Consumer Key and Consumer Secret to .env
-[ ] Run testSalesforceOAuth.ts
-[ ] Confirm authenticated Salesforce Run As user
-[ ] Test preview_salesforce_user on an existing user
-[ ] Test preview_salesforce_user on a non-existing user
-[ ] Verify Profile, Role, and Permission Set Group resolution
-[ ] Validate create_salesforce_user in a controlled test before production use
-[ ] Confirm Salesforce repair flow returns USER_REPAIRED on an existing test user
-[ ] Confirm already-assigned Permission Set Groups are not duplicated
-[ ] Create Slack app for SCIM access
-[ ] Add Slack user OAuth token to .env
-[ ] Run testSlackScim.ts
-[ ] Test preview_slack_user on an existing Slack member
-[ ] Test preview_slack_user on a non-existing Slack member
-[ ] Test create_slack_user with a controlled test row
-[ ] Verify the Slack member appears in the workspace
-[ ] Configure SLACK_WORKSPACE_URL
-[ ] Configure SLACK_INVITE_FROM_EMAIL and SLACK_INVITE_FROM_NAME
-[ ] Test preview_slack_invite_email
-[ ] Test send_slack_invite_email
-[ ] Confirm the Slack access email arrives in the employee Cardiff mailbox
-```
-
----
-
-# Maintainer Notes
-
-The project is intentionally being built incrementally.
-
-Do not rush directly into a single "onboard everything" tool.
-
-Keep integrations modular so each system can be previewed, tested, and verified independently.
-
-A strong pattern for each integration is:
-
-```text
-Read
-  ↓
-Preview
-  ↓
-Approve
-  ↓
-Create / Update
-  ↓
-Verify
-```
-
-This keeps the automation understandable, testable, and much safer to operate.
-
----
-
-## Status
-
-### Implemented
-
-- Google Sheet ingestion
-- Employee normalization
-- Protected credential retrieval
-- Google Workspace user lookup
-- Google Workspace user preview
-- Google Workspace user creation
-- Duplicate-user handling
-- Explicit confirmation for Google account creation
-- Google OAuth foundation
-- Gmail/Calendar authorization foundation
-- MCP Inspector development workflow
-- Salesforce Client Credentials authentication
-- Salesforce production REST API connection
-- Salesforce Run As administrator authentication
-- Salesforce user preview
-- Salesforce Profile resolution
-- Salesforce Role resolution
-- Salesforce Permission Set Group resolution
-- Salesforce user creation
-- Salesforce password setting from `SF Password`
-- Salesforce Permission Set Group assignment
-- Salesforce partial-provisioning repair / resume behavior
-- Slack SCIM authentication
-- Slack user preview
-- Slack member provisioning
-- Slack duplicate-account handling
-- Slack access email preview
-- Slack access email sending through Gmail
-- Slack workspace sign-in link delivery to the employee's Cardiff mailbox
-
-### In Progress
-
-- Additional Slack email styling / optional embedded Slack logo
-
-### TBA
-
-- Zoom provisioning
-- Apple Business Manager account creation
-- Full onboarding email workflow
-- Automated Calendar event scheduling
-- End-to-end onboarding orchestration
-
-
-## Current MCP Tools
-
-The MCP currently exposes the following tools:
-
-- `test_connection` — verifies that the MCP server is running and reachable.
-- `get_new_hire` — reads a new-hire row from the live Rep Credentials Google Sheet without returning passwords.
-- `preview_google_user` — read-only preview of the Google Workspace account that would be created, including duplicate detection and password availability.
-- `create_google_user` — creates the Google Workspace account from the live sheet, using the stored `GM Password` internally and returning a normal existing-user result when appropriate.
-- `preview_salesforce_user` — read-only Salesforce preview that checks whether Salesforce is required, verifies the username, resolves the requested Profile and Role, resolves Permission Set Groups, and checks whether an `SF Password` is available.
-- `create_salesforce_user` — creates or repairs a Salesforce user, sets the password from the `SF Password` column, assigns only missing Permission Set Groups, and safely resumes partially completed provisioning.
-- `preview_slack_user` — read-only Slack SCIM lookup using the employee's Cardiff email.
-- `create_slack_user` — provisions the Slack member through SCIM while keeping Google Workspace SSO as the login method.
-- `preview_slack_invite_email` — previews the separate Slack access email that will be sent to the employee's Cardiff mailbox.
-- `send_slack_invite_email` — sends the Slack access email from the configured administrator Gmail account with explicit confirmation.
-
-Planned tools / integrations:
-
-- Zoom provisioning — TBA
-- Apple Business Manager account creation — TBA
-- Full onboarding email — TBA
-- Calendar scheduling workflow — TBA
-- End-to-end onboarding orchestration — TBA
+That pattern has worked well for Google Workspace, Salesforce, and Slack and keeps onboarding automation safe and predictable.
