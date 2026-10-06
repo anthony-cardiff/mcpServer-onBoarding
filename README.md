@@ -22,10 +22,11 @@ The current implementation supports:
 Current integration status:
 
 - Google Workspace — **implemented and validated**
-- Salesforce authentication + preview — **implemented and validated**
-- Salesforce creation — **implementation in progress / validate before production use**
-- Slack — **TBA**
+- Salesforce authentication, preview, creation, and repair — **implemented and validated**
+- Slack SCIM provisioning — **implemented and validated**
+- Slack access email — **implemented and validated**
 - Zoom — **TBA**
+- Apple Business Manager — **TBA**
 
 ---
 
@@ -111,6 +112,8 @@ This project currently uses:
 - Gmail API
 - Salesforce REST API
 - Salesforce External Client App / OAuth 2.0 Client Credentials Flow
+- Slack SCIM API
+- Gmail API for Slack access email delivery
 - dotenv
 - tsx
 
@@ -171,23 +174,31 @@ Onboarding/
 │   │
 │   ├── services/
 │   │   ├── credentials.ts
+│   │   ├── gmail.ts
 │   │   ├── googleAdmin.ts
 │   │   ├── googleOAuth.ts
 │   │   ├── googleSheets.ts
 │   │   ├── salesforceApi.ts
 │   │   ├── salesforceOAuth.ts
+│   │   ├── slackScim.ts
 │   │   └── spreadsheet.ts
+│   │
+│   ├── templates/
+│   │   └── slackInviteEmail.ts
 │   │
 │   ├── tools/
 │   │   ├── googleUser.ts
 │   │   ├── newHire.ts
-│   │   └── salesforceUser.ts
+│   │   ├── salesforceUser.ts
+│   │   ├── slackInviteEmail.ts
+│   │   └── slackUser.ts
 │   │
 │   ├── scripts/
 │   │   ├── authorizeGoogle.ts
 │   │   ├── testGoogleAdmin.ts
 │   │   ├── testGoogleOAuth.ts
-│   │   └── testSalesforceOAuth.ts
+│   │   ├── testSalesforceOAuth.ts
+│   │   └── testSlackScim.ts
 │   │
 │   └── types/
 │       └── employee.ts
@@ -222,6 +233,14 @@ GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
 SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
 SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
 SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
+
+# Slack
+SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
+SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
+
+# Slack Access Email
+SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
+SLACK_INVITE_FROM_NAME=Your Name
 ```
 
 For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
@@ -1311,6 +1330,14 @@ GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
 SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
 SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
 SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
+
+# Slack
+SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
+SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
+
+# Slack Access Email
+SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
+SLACK_INVITE_FROM_NAME=Your Name
 ```
 
 For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
@@ -1491,6 +1518,14 @@ GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
 SALESFORCE_LOGIN_URL=https://your-my-domain.my.salesforce.com
 SALESFORCE_CLIENT_ID=<SALESFORCE_CONSUMER_KEY>
 SALESFORCE_CLIENT_SECRET=<SALESFORCE_CONSUMER_SECRET>
+
+# Slack
+SLACK_SCIM_TOKEN=<SLACK_USER_OAUTH_TOKEN>
+SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
+
+# Slack Access Email
+SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
+SLACK_INVITE_FROM_NAME=Your Name
 ```
 
 For Salesforce Client Credentials Flow, use the organization's **My Domain** URL, not `https://login.salesforce.com` and not a Lightning URL. Example:
@@ -1581,46 +1616,134 @@ Implemented and validated:
 - Role lookup by name
 - Permission Set Group lookup by label or DeveloperName
 - SF Password availability check without exposing the password
-
-Next / validate before production use:
-
 - `create_salesforce_user`
-- Set the password from `SF Password`
-- Assign requested Permission Set Groups
-- Add partial-provisioning recovery / retry behavior
-- Verify the final Salesforce user
-- Add any required individual Permission Sets or managed-package handling
+- Salesforce User creation
+- Password setting from the `SF Password` spreadsheet column
+- Permission Set Group assignment
+- Duplicate-user protection
+- Partial-provisioning repair / resume behavior
+- Existing password detection by treating Salesforce `invalid repeated password` as an already-complete password step
+- Existing Permission Set Group detection so assignments are not duplicated
+- Safe mismatch checks for an existing user's Profile or Role before repair continues
 
-Target tool pattern:
+The creation / repair flow is intentionally idempotent:
 
 ```text
-preview_salesforce_user
-create_salesforce_user
-verify_salesforce_user
+User does not exist
+   ↓
+Create Salesforce User
+   ↓
+Set password from SF Password
+   ↓
+Assign missing Permission Set Groups
+   ↓
+USER_CREATED
+
+User already exists
+   ↓
+Reuse existing User Id
+   ↓
+Set / verify password from SF Password
+   ↓
+Keep existing Permission Set Groups
+   ↓
+Assign only missing groups
+   ↓
+USER_REPAIRED
 ```
+
+Current Salesforce defaults used for newly created users:
+
+```text
+TimeZoneSidKey: America/Los_Angeles
+LocaleSidKey: en_US
+EmailEncodingKey: ISO-8859-1
+LanguageLocaleKey: en_US
+```
+
+The Salesforce password is never generated by the MCP. It is read at runtime from the employee's `SF Password` column through `getEmployeeCredential(row, "sfPassword")`, sent directly to Salesforce, and never returned in MCP output.
 
 ---
 
-## 58. Slack — TBA
+## 58. Slack — Current Status
 
-Planned responsibilities may include:
+Implemented and validated on Slack Business+:
 
-- Preview Slack provisioning
-- Invite/create user
-- Map employee information
-- Assign relevant channels or groups where appropriate
-- Verify account status
-- Avoid duplicate invites/accounts
+- Slack SCIM authentication using a user OAuth token
+- Read-only `preview_slack_user`
+- Slack member lookup by Cardiff email
+- `create_slack_user` through the Slack SCIM API
+- Duplicate-account protection
+- Google Workspace SSO remains the employee login method
+- No Slack password is generated or stored
+- Separate Slack access email sent through Gmail
+- Read-only `preview_slack_invite_email`
+- `send_slack_invite_email` with explicit confirmation
+- Slack access email is sent to the employee's Cardiff email address, not their personal email
+- Slack workspace link is included in the email
 
-Likely tool pattern:
+Slack workspace used by the current Cardiff implementation:
 
 ```text
-preview_slack_user
-create_slack_user
-verify_slack_user
+https://cardiff-duq1447.slack.com/
 ```
 
-**Implementation: TBA**
+### Why SCIM is used
+
+Slack's Enterprise-only `admin.users.invite` API is not available on Business+. SCIM is available on Business+ and is used to provision the workspace member. Because SCIM does not reliably send the standard Slack invitation email, the MCP sends a separate Slack access email from the onboarding administrator's Gmail account.
+
+Current Slack flow:
+
+```text
+Rep Credentials row
+   ↓
+preview_slack_user
+   ↓
+create_slack_user
+   ↓
+Slack SCIM provisions member
+   ↓
+preview_slack_invite_email
+   ↓
+send_slack_invite_email
+   ↓
+Employee receives email in Cardiff mailbox
+   ↓
+Employee opens Slack workspace link
+   ↓
+Employee signs in with Google Workspace SSO
+```
+
+### Slack token requirements
+
+The SCIM token is stored only in `.env`:
+
+```env
+SLACK_SCIM_TOKEN=xoxp-...
+```
+
+Do not commit this token. The token must belong to a Slack Workspace Admin or Owner and must continue to have the privileges required for SCIM provisioning.
+
+### Slack access email
+
+The Slack access message is intentionally separate from the future full onboarding email. The current files are:
+
+```text
+src/templates/slackInviteEmail.ts
+src/services/gmail.ts
+src/tools/slackInviteEmail.ts
+```
+
+The tools are:
+
+```text
+preview_slack_invite_email
+send_slack_invite_email
+```
+
+The email is sent from the configured administrator address and goes to the employee's new Cardiff mailbox so they see it when they first sign in on onboarding day. The reusable Gmail service is generic so it can later support other onboarding emails as well.
+
+The HTML template currently includes a prominent Slack sign-in call-to-action. It can be styled further or enhanced with an embedded logo later.
 
 ---
 
@@ -1676,11 +1799,15 @@ Preview Slack user
    ↓
 Create Slack user
    ↓
+Preview Slack access email
+   ↓
+Send Slack access email to Cardiff mailbox
+   ↓
 Preview Zoom user
    ↓
 Create Zoom user
    ↓
-Send onboarding email from authorized Gmail account
+Send final onboarding email from authorized Gmail account
    ↓
 Check onboarding owner's Calendar availability
    ↓
@@ -1746,6 +1873,20 @@ Use this when setting up the repository on a new machine.
 [ ] Test preview_salesforce_user on a non-existing user
 [ ] Verify Profile, Role, and Permission Set Group resolution
 [ ] Validate create_salesforce_user in a controlled test before production use
+[ ] Confirm Salesforce repair flow returns USER_REPAIRED on an existing test user
+[ ] Confirm already-assigned Permission Set Groups are not duplicated
+[ ] Create Slack app for SCIM access
+[ ] Add Slack user OAuth token to .env
+[ ] Run testSlackScim.ts
+[ ] Test preview_slack_user on an existing Slack member
+[ ] Test preview_slack_user on a non-existing Slack member
+[ ] Test create_slack_user with a controlled test row
+[ ] Verify the Slack member appears in the workspace
+[ ] Configure SLACK_WORKSPACE_URL
+[ ] Configure SLACK_INVITE_FROM_EMAIL and SLACK_INVITE_FROM_NAME
+[ ] Test preview_slack_invite_email
+[ ] Test send_slack_invite_email
+[ ] Confirm the Slack access email arrives in the employee Cardiff mailbox
 ```
 
 ---
@@ -1798,19 +1939,29 @@ This keeps the automation understandable, testable, and much safer to operate.
 - Salesforce Profile resolution
 - Salesforce Role resolution
 - Salesforce Permission Set Group resolution
+- Salesforce user creation
+- Salesforce password setting from `SF Password`
+- Salesforce Permission Set Group assignment
+- Salesforce partial-provisioning repair / resume behavior
+- Slack SCIM authentication
+- Slack user preview
+- Slack member provisioning
+- Slack duplicate-account handling
+- Slack access email preview
+- Slack access email sending through Gmail
+- Slack workspace sign-in link delivery to the employee's Cardiff mailbox
 
 ### In Progress
 
-- Salesforce user creation / password / Permission Set Group assignment validation
+- Additional Slack email styling / optional embedded Slack logo
 
 ### TBA
 
-- Slack provisioning
 - Zoom provisioning
-- Onboarding email send workflow
+- Apple Business Manager account creation
+- Full onboarding email workflow
 - Automated Calendar event scheduling
 - End-to-end onboarding orchestration
-
 
 
 ## Current MCP Tools
@@ -1820,13 +1971,18 @@ The MCP currently exposes the following tools:
 - `test_connection` — verifies that the MCP server is running and reachable.
 - `get_new_hire` — reads a new-hire row from the live Rep Credentials Google Sheet without returning passwords.
 - `preview_google_user` — read-only preview of the Google Workspace account that would be created, including duplicate detection and password availability.
-- `create_google_user` — creates the Google Workspace account from the live sheet, using the stored `GM Password` internally and returning a normal `USER_ALREADY_EXISTS` result when appropriate.
-- `preview_salesforce_user` — read-only Salesforce preview that checks whether Salesforce is required, verifies the username is available, resolves the requested Profile and Role, resolves Permission Set Groups, and checks whether an `SF Password` is available.
-- `create_salesforce_user` — creates the Salesforce User record, sets the password from the `SF Password` column, assigns requested Permission Set Groups, and prevents duplicate user creation.
+- `create_google_user` — creates the Google Workspace account from the live sheet, using the stored `GM Password` internally and returning a normal existing-user result when appropriate.
+- `preview_salesforce_user` — read-only Salesforce preview that checks whether Salesforce is required, verifies the username, resolves the requested Profile and Role, resolves Permission Set Groups, and checks whether an `SF Password` is available.
+- `create_salesforce_user` — creates or repairs a Salesforce user, sets the password from the `SF Password` column, assigns only missing Permission Set Groups, and safely resumes partially completed provisioning.
+- `preview_slack_user` — read-only Slack SCIM lookup using the employee's Cardiff email.
+- `create_slack_user` — provisions the Slack member through SCIM while keeping Google Workspace SSO as the login method.
+- `preview_slack_invite_email` — previews the separate Slack access email that will be sent to the employee's Cardiff mailbox.
+- `send_slack_invite_email` — sends the Slack access email from the configured administrator Gmail account with explicit confirmation.
 
 Planned tools / integrations:
 
-- Salesforce post-provisioning refinements — TBA
-- Slack provisioning — TBA
 - Zoom provisioning — TBA
-- Final onboarding email and Calendar scheduling workflow — TBA
+- Apple Business Manager account creation — TBA
+- Full onboarding email — TBA
+- Calendar scheduling workflow — TBA
+- End-to-end onboarding orchestration — TBA
