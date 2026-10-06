@@ -17,8 +17,8 @@ import {
 } from "../services/credentials.js";
 
 import {
-  assignSalesforcePermissionSetGroup,
   createSalesforceUser,
+  ensureSalesforcePermissionSetGroup,
   findSalesforcePermissionSetGroup,
   findSalesforceProfileByName,
   findSalesforceRoleByName,
@@ -37,6 +37,18 @@ export function registerSalesforceUserTools(
    * ============================================
    *
    * Completely read-only.
+   *
+   * This tool:
+   *
+   * - Reads Rep Credentials
+   * - Checks whether Salesforce is required
+   * - Checks whether the username already exists
+   * - Resolves Profile
+   * - Resolves Role
+   * - Resolves Permission Set Groups
+   * - Checks whether SF Password is available
+   *
+   * It does NOT create or modify anything.
    */
   server.registerTool(
     "preview_salesforce_user",
@@ -78,6 +90,12 @@ export function registerSalesforceUserTools(
           );
 
 
+        /*
+         * ============================================
+         * BASIC VALIDATION
+         * ============================================
+         */
+
         if (
           !employee.firstName ||
           !employee.lastName
@@ -107,6 +125,11 @@ export function registerSalesforceUserTools(
           employee.cardiffEmail;
 
 
+        /*
+         * If Salesforce is not required,
+         * return a normal preview instead
+         * of treating that as an error.
+         */
         if (!salesforceRequired) {
           const preview = {
             row,
@@ -154,6 +177,12 @@ export function registerSalesforceUserTools(
         }
 
 
+        /*
+         * ============================================
+         * VALIDATE USERNAME
+         * ============================================
+         */
+
         if (!username) {
           throw new Error(
             `Row ${row} requires Salesforce but does not contain a Salesforce username / GM User.`
@@ -163,7 +192,7 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
-         * CHECK PASSWORD
+         * CHECK SF PASSWORD
          * ============================================
          */
 
@@ -176,7 +205,7 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
-         * CHECK EXISTING USER
+         * CHECK EXISTING SALESFORCE USER
          * ============================================
          */
 
@@ -243,6 +272,7 @@ export function registerSalesforceUserTools(
           const groupName
           of requestedGroups
         ) {
+
           const group =
             await findSalesforcePermissionSetGroup(
               groupName
@@ -286,6 +316,10 @@ export function registerSalesforceUserTools(
           );
 
 
+        /*
+         * Role is optional if Rep Credentials
+         * does not specify one.
+         */
         const roleReady =
           requestedRole
             ? Boolean(
@@ -321,7 +355,7 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
-         * BUILD PREVIEW
+         * BUILD PREVIEW RESPONSE
          * ============================================
          */
 
@@ -452,20 +486,31 @@ export function registerSalesforceUserTools(
 
   /*
    * ============================================
-   * CREATE SALESFORCE USER
+   * CREATE / REPAIR SALESFORCE USER
    * ============================================
    *
-   * Creates the Salesforce User record,
-   * sets the employee's Salesforce password,
-   * and assigns requested Permission Set Groups.
+   * Idempotent Salesforce provisioning.
    *
-   * Requires explicit confirmation.
+   * If the User does not exist:
+   *
+   * - Create the User
+   * - Set password
+   * - Assign missing Permission Set Groups
+   *
+   * If the User already exists:
+   *
+   * - Reuse the existing User
+   * - Set/reset the password from Rep Credentials
+   * - Assign only missing Permission Set Groups
+   *
+   * This allows a failed onboarding attempt
+   * to safely resume without creating duplicates.
    */
   server.registerTool(
     "create_salesforce_user",
     {
       description:
-        "Create the Salesforce account for a Cardiff new hire using the live Rep Credentials row. Creates the Salesforce User, sets the stored SF Password internally, and assigns requested Permission Set Groups. Requires explicit confirmation.",
+        "Create or repair the Salesforce account for a Cardiff new hire using the live Rep Credentials row. If the Salesforce User already exists, the tool resumes provisioning by resetting the password from the stored SF Password and assigning any missing Permission Set Groups. Requires explicit confirmation.",
 
       inputSchema:
         z.object({
@@ -481,7 +526,7 @@ export function registerSalesforceUserTools(
                 true
               )
               .describe(
-                "Must be true to confirm Salesforce account creation."
+                "Must be true to confirm Salesforce account creation or repair."
               ),
         }),
     },
@@ -510,7 +555,7 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
-         * VALIDATE BASIC USER DATA
+         * VALIDATE EMPLOYEE DATA
          * ============================================
          */
 
@@ -553,62 +598,7 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
-         * CHECK FOR EXISTING USER
-         * ============================================
-         */
-
-        const existingUser =
-          await findSalesforceUserByUsername(
-            username
-          );
-
-
-        if (existingUser) {
-          const result = {
-            success:
-              false,
-
-            created:
-              false,
-
-            reason:
-              "USER_ALREADY_EXISTS",
-
-            userId:
-              existingUser.Id,
-
-            username:
-              existingUser.Username,
-
-            isActive:
-              existingUser.IsActive,
-          };
-
-
-          return {
-            content: [
-              {
-                type:
-                  "text",
-
-                text:
-                  JSON.stringify(
-                    result,
-                    null,
-                    2
-                  ),
-              },
-            ],
-
-            structuredContent:
-              result,
-          };
-        }
-
-
-        /*
-         * ============================================
-         * RETRIEVE SALESFORCE PASSWORD
+         * GET SALESFORCE PASSWORD
          * ============================================
          */
 
@@ -705,6 +695,7 @@ export function registerSalesforceUserTools(
           const groupName
           of requestedGroups
         ) {
+
           const group =
             await findSalesforcePermissionSetGroup(
               groupName
@@ -726,48 +717,156 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
-         * CREATE SALESFORCE USER
+         * CHECK FOR EXISTING USER
          * ============================================
          */
 
-        const createdUser =
-          await createSalesforceUser({
-            firstName:
-              employee.firstName,
+        const existingUser =
+          await findSalesforceUserByUsername(
+            username
+          );
 
-            lastName:
-              employee.lastName,
 
-            username,
+        let userId:
+          string;
 
-            email:
-              employee.cardiffEmail ??
+
+        let alias:
+          string | undefined;
+
+
+        let userCreated =
+          false;
+
+
+        /*
+         * ============================================
+         * EXISTING USER
+         * ============================================
+         *
+         * Do not stop provisioning.
+         *
+         * Reuse the existing User Id and continue
+         * with password + Permission Set Groups.
+         */
+
+        if (existingUser) {
+
+          userId =
+            existingUser.Id;
+
+
+          /*
+           * ============================================
+           * SAFETY CHECK: PROFILE
+           * ============================================
+           *
+           * If the existing User has a different
+           * Profile than Rep Credentials expects,
+           * stop instead of silently changing it.
+           */
+
+          if (
+            existingUser.ProfileId &&
+            existingUser.ProfileId !==
+              profile.Id
+          ) {
+            throw new Error(
+              `Existing Salesforce User ${username} has ProfileId ${existingUser.ProfileId}, but Rep Credentials requires ${profile.Id} (${profile.Name}). No changes were made to the Profile.`
+            );
+          }
+
+
+          /*
+           * ============================================
+           * SAFETY CHECK: ROLE
+           * ============================================
+           *
+           * Same approach for Role.
+           */
+
+          if (
+            role &&
+            existingUser.UserRoleId &&
+            existingUser.UserRoleId !==
+              role.Id
+          ) {
+            throw new Error(
+              `Existing Salesforce User ${username} has UserRoleId ${existingUser.UserRoleId}, but Rep Credentials requires ${role.Id} (${role.Name}). No changes were made to the Role.`
+            );
+          }
+
+        } else {
+
+          /*
+           * ============================================
+           * CREATE NEW SALESFORCE USER
+           * ============================================
+           */
+
+          const createdUser =
+            await createSalesforceUser({
+              firstName:
+                employee.firstName,
+
+              lastName:
+                employee.lastName,
+
               username,
 
-            profileId:
-              profile.Id,
+              email:
+                employee.cardiffEmail ??
+                username,
 
-            userRoleId:
-              role?.Id,
-          });
+              profileId:
+                profile.Id,
+
+              userRoleId:
+                role?.Id,
+            });
+
+
+          userId =
+            createdUser.id;
+
+
+          alias =
+            createdUser.alias;
+
+
+          userCreated =
+            true;
+        }
 
 
         /*
          * ============================================
-         * SET SALESFORCE PASSWORD
+         * SET / RESET SALESFORCE PASSWORD
          * ============================================
+         *
+         * This intentionally runs whether the
+         * User was created now or already existed.
+         *
+         * That allows a partially completed
+         * onboarding to resume safely using the
+         * SF Password stored in Rep Credentials.
          */
 
-        await setSalesforceUserPassword(
-          createdUser.id,
-          sfPassword
-        );
+        const passwordResult =
+          await setSalesforceUserPassword(
+            userId,
+            sfPassword
+          );
 
 
         /*
          * ============================================
-         * ASSIGN PERMISSION SET GROUPS
+         * ENSURE PERMISSION SET GROUPS
          * ============================================
+         *
+         * Existing assignments are retained.
+         *
+         * Missing assignments are created.
          */
 
         const groupAssignments = [];
@@ -777,15 +876,17 @@ export function registerSalesforceUserTools(
           const group
           of permissionSetGroups
         ) {
-          const assignmentId =
-            await assignSalesforcePermissionSetGroup(
-              createdUser.id,
+
+          const assignment =
+            await ensureSalesforcePermissionSetGroup(
+              userId,
               group.Id
             );
 
 
           groupAssignments.push({
-            assignmentId,
+            assignmentId:
+              assignment.assignmentId,
 
             permissionSetGroupId:
               group.Id,
@@ -795,6 +896,12 @@ export function registerSalesforceUserTools(
 
             label:
               group.MasterLabel,
+
+            alreadyAssigned:
+              !assignment.created,
+
+            assignedNow:
+              assignment.created,
           });
         }
 
@@ -810,21 +917,26 @@ export function registerSalesforceUserTools(
             true,
 
           created:
-            true,
+            userCreated,
+
+          repaired:
+            !userCreated,
 
           reason:
-            "USER_CREATED",
+            userCreated
+              ? "USER_CREATED"
+              : "USER_REPAIRED",
 
           row,
 
           user: {
             id:
-              createdUser.id,
+              userId,
 
             username,
 
             alias:
-              createdUser.alias,
+              alias,
 
             firstName:
               employee.firstName,
@@ -857,7 +969,10 @@ export function registerSalesforceUserTools(
           },
 
           passwordSet:
-            true,
+            passwordResult.passwordSet,
+
+          passwordAlreadyCurrent:
+            passwordResult.alreadyCurrent,
 
           passwordReturned:
             false,
@@ -891,7 +1006,7 @@ export function registerSalesforceUserTools(
         const message =
           error instanceof Error
             ? error.message
-            : "Unknown Salesforce creation error.";
+            : "Unknown Salesforce creation or repair error.";
 
 
         return {

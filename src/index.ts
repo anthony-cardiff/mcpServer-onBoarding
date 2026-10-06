@@ -5,6 +5,8 @@ import * as z from "zod/v4";
 import { registerNewHireTools } from "./tools/newHire.js";
 import { registerGoogleUserTools } from "./tools/googleUser.js";
 import { registerSalesforceUserTools } from "./tools/salesforceUser.js";
+import { registerSlackUserTools } from "./tools/slackUser.js";
+import { registerSlackInviteEmailTools } from "./tools/slackInviteEmail.js";
 
 function createServer() {
   const server = new McpServer({
@@ -36,6 +38,8 @@ function createServer() {
   registerNewHireTools(server);
   registerGoogleUserTools(server);
   registerSalesforceUserTools(server);
+  registerSlackUserTools(server);
+  registerSlackInviteEmailTools(server);
 
   return server;
 }
