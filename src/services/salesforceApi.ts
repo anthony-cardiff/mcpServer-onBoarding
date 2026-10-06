@@ -136,6 +136,18 @@ export interface CreateSalesforceUserInput {
 }
 
 
+export interface SalesforcePermissionSetAssignmentRecord {
+  Id:
+    string;
+
+  AssigneeId:
+    string;
+
+  PermissionSetGroupId?:
+    string;
+}
+
+
 /*
  * ============================================
  * ESCAPE SOQL STRING
@@ -515,12 +527,22 @@ export async function createSalesforceUser(
  *
  * Password is sent directly to Salesforce
  * and is never returned by our MCP.
+ *
+ * If Salesforce reports "invalid repeated
+ * password", that means the requested password
+ * is already the user's current password.
+ *
+ * Treat that as success so repair operations
+ * remain idempotent.
  */
 
 export async function setSalesforceUserPassword(
   userId: string,
   password: string
-): Promise<void> {
+): Promise<{
+  passwordSet: boolean;
+  alreadyCurrent: boolean;
+}> {
 
   const response =
     await salesforceFetch(
@@ -538,14 +560,154 @@ export async function setSalesforceUserPassword(
     );
 
 
-  if (!response.ok) {
-    const body =
-      await response.text();
+  if (response.ok) {
+    return {
+      passwordSet:
+        true,
 
-    throw new Error(
-      `Salesforce password setup failed (${response.status}): ${body}`
-    );
+      alreadyCurrent:
+        false,
+    };
   }
+
+
+  const body =
+    await response.text();
+
+
+  /*
+   * ============================================
+   * PASSWORD ALREADY MATCHES
+   * ============================================
+   *
+   * Salesforce rejects setting the exact same
+   * password again with:
+   *
+   * "invalid repeated password"
+   *
+   * For our onboarding repair workflow,
+   * this means the password step is already
+   * complete.
+   */
+  if (
+    body
+      .toLowerCase()
+      .includes(
+        "invalid repeated password"
+      )
+  ) {
+    return {
+      passwordSet:
+        true,
+
+      alreadyCurrent:
+        true,
+    };
+  }
+
+
+  throw new Error(
+    `Salesforce password setup failed (${response.status}): ${body}`
+  );
+}
+
+
+/*
+ * ============================================
+ * FIND PERMISSION SET GROUP ASSIGNMENT
+ * ============================================
+ *
+ * Determines whether a Salesforce User already
+ * has a particular Permission Set Group.
+ */
+
+export async function findSalesforcePermissionSetGroupAssignment(
+  userId: string,
+  permissionSetGroupId: string
+): Promise<SalesforcePermissionSetAssignmentRecord | undefined> {
+
+  const escapedUserId =
+    escapeSoqlString(
+      userId
+    );
+
+
+  const escapedGroupId =
+    escapeSoqlString(
+      permissionSetGroupId
+    );
+
+
+  const result =
+    await salesforceQuery<SalesforcePermissionSetAssignmentRecord>(
+      `
+        SELECT
+          Id,
+          AssigneeId,
+          PermissionSetGroupId
+        FROM PermissionSetAssignment
+        WHERE
+          AssigneeId = '${escapedUserId}'
+          AND
+          PermissionSetGroupId = '${escapedGroupId}'
+        LIMIT 1
+      `
+    );
+
+
+  return result.records[0];
+}
+
+
+/*
+ * ============================================
+ * ENSURE PERMISSION SET GROUP ASSIGNMENT
+ * ============================================
+ *
+ * Idempotent helper.
+ *
+ * If the User already has the Permission Set
+ * Group, return the existing assignment.
+ *
+ * Otherwise create the assignment.
+ */
+
+export async function ensureSalesforcePermissionSetGroup(
+  userId: string,
+  permissionSetGroupId: string
+) {
+
+  const existing =
+    await findSalesforcePermissionSetGroupAssignment(
+      userId,
+      permissionSetGroupId
+    );
+
+
+  if (existing) {
+    return {
+      assignmentId:
+        existing.Id,
+
+      created:
+        false,
+    };
+  }
+
+
+  const assignmentId =
+    await assignSalesforcePermissionSetGroup(
+      userId,
+      permissionSetGroupId
+    );
+
+
+  return {
+    assignmentId,
+
+    created:
+      true,
+  };
 }
 
 
