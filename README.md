@@ -26,7 +26,7 @@ The spreadsheet is the source of truth. Passwords are read only when needed, are
 | Salesforce account creation / repair | Implemented + validated |
 | Slack SCIM provisioning | Implemented + validated |
 | Slack access email | Implemented + validated |
-| Zoom | TBA |
+| Zoom | Working - Testing |
 | Apple Business Manager | TBA |
 | Full onboarding email / Calendar workflow | TBA |
 
@@ -75,7 +75,9 @@ Onboarding/
 │   │   ├── salesforceApi.ts
 │   │   ├── salesforceOAuth.ts
 │   │   ├── slackScim.ts
-│   │   └── spreadsheet.ts
+│   │   ├── spreadsheet.ts
+│   │   ├── zoomApi.ts
+│   │   └── zoomOAuth.ts
 │   ├── templates/
 │   │   └── slackInviteEmail.ts
 │   ├── tools/
@@ -83,13 +85,15 @@ Onboarding/
 │   │   ├── newHire.ts
 │   │   ├── salesforceUser.ts
 │   │   ├── slackInviteEmail.ts
-│   │   └── slackUser.ts
+│   │   ├── slackUser.ts
+│   │   └── zoomUser.ts
 │   ├── scripts/
 │   │   ├── authorizeGoogle.ts
 │   │   ├── testGoogleAdmin.ts
 │   │   ├── testGoogleOAuth.ts
 │   │   ├── testSalesforceOAuth.ts
-│   │   └── testSlackScim.ts
+│   │   ├── testSlackScim.ts
+│   │   └── testZoomOAuth.ts
 │   └── types/
 │       └── employee.ts
 ├── .env
@@ -140,6 +144,11 @@ SLACK_WORKSPACE_URL=https://your-workspace.slack.com/
 # Slack access email
 SLACK_INVITE_FROM_EMAIL=you@yourcompany.com
 SLACK_INVITE_FROM_NAME=Your Name
+
+# Zoom Server-to-Server OAuth
+ZOOM_ACCOUNT_ID=<ZOOM_ACCOUNT_ID>
+ZOOM_CLIENT_ID=<ZOOM_CLIENT_ID>
+ZOOM_CLIENT_SECRET=<ZOOM_CLIENT_SECRET>
 ```
 
 Store credential files outside the repo, for example:
@@ -474,7 +483,60 @@ The template can use a large HTML button for the Slack link.
 
 ---
 
-# 11. MCP Server + Claude / Inspector
+
+# 11. Zoom Setup + User Provisioning
+
+Zoom currently uses a **Server-to-Server OAuth** app. The basic connection, user lookup, and user provisioning flow are working and still being tested before Zoom Phone automation is added.
+
+Create a Zoom Marketplace **Server-to-Server OAuth** app and store its credentials in `.env`:
+
+```env
+ZOOM_ACCOUNT_ID=<ZOOM_ACCOUNT_ID>
+ZOOM_CLIENT_ID=<ZOOM_CLIENT_ID>
+ZOOM_CLIENT_SECRET=<ZOOM_CLIENT_SECRET>
+```
+
+The app currently needs user-management access plus the group scopes required to read groups and add members. Test authentication with:
+
+```bash
+npx tsx src/scripts/testZoomOAuth.ts
+```
+
+A successful test confirms both OAuth and read access to the Zoom Users API.
+
+Current tools:
+
+```text
+preview_zoom_user
+create_zoom_user
+```
+
+`preview_zoom_user` reads the live Rep Credentials row and checks:
+
+- Whether Zoom is required.
+- Whether the Cardiff email already exists in Zoom.
+- Whether Direct Line and SMS are requested.
+- The employee job title.
+- The standard `Everyone` group configuration.
+
+The current standard Cardiff user configuration is:
+
+```text
+Zoom Workplace: Unassigned
+Zoom Phone Basic: enabled
+Job Title: pulled from the spreadsheet Title field
+User Group: Everyone
+```
+
+The create flow uses Zoom's normal `action: "create"` user creation path. This matches the current Cardiff process, where Zoom sends an activation email and the user later signs in using their Cardiff Google account. Existing users can be reused/repaired rather than duplicated.
+
+A pending Zoom user is **not yet ready for Zoom Phone provisioning**. The MCP now tracks activation / phone-readiness state so the later phone workflow can wait until the account is active.
+
+Direct Line, calling-plan assignment, toll-number assignment, and SMS provisioning are intentionally being built as a separate Zoom Phone step.
+
+---
+
+# 12. MCP Server + Claude / Inspector
 
 Compile first:
 
@@ -513,7 +575,7 @@ npx tsx /absolute/path/to/Onboarding/src/index.ts
 
 ---
 
-# 12. Current MCP Tools
+# 13. Current MCP Tools
 
 ## Core
 
@@ -545,11 +607,18 @@ preview_slack_invite_email
 send_slack_invite_email
 ```
 
+## Zoom
+
+```text
+preview_zoom_user
+create_zoom_user
+```
+
 All write tools require an explicit confirmation input.
 
 ---
 
-# 13. Common Troubleshooting
+# 14. Common Troubleshooting
 
 ## MCP Inspector shows Failed
 
@@ -585,7 +654,7 @@ Expected with SCIM. Use `send_slack_invite_email` to send the Cardiff Slack sign
 
 ---
 
-# 14. Security Model
+# 15. Security Model
 
 This project intentionally separates read-only and write behavior.
 
@@ -601,16 +670,16 @@ Recommended rules:
 
 ---
 
-# 15. Planned Integrations
+# 16. Planned Integrations
 
-## Zoom — TBA
+## Zoom Phone — TBA / In Progress
 
-Planned capabilities may include:
+Basic Zoom user creation is now **Working - Testing**. Remaining Zoom Phone work includes:
 
 ```text
-preview_zoom_user
-create_zoom_user
-assign direct line
+verify activation / phone readiness
+assign calling plan
+assign direct line / toll number
 configure SMS
 ```
 
@@ -631,7 +700,7 @@ A future workflow will be separate from the Slack access email and may include:
 
 ---
 
-# 16. Recommended Development Pattern
+# 17. Recommended Development Pattern
 
 For every new integration, follow the same sequence:
 
@@ -646,4 +715,4 @@ For every new integration, follow the same sequence:
 8. Update this README
 ```
 
-That pattern has worked well for Google Workspace, Salesforce, and Slack and keeps onboarding automation safe and predictable.
+That pattern has worked well for Google Workspace, Salesforce, Slack, and the current Zoom build and keeps onboarding automation safe and predictable.
