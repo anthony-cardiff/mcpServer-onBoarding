@@ -1,6 +1,6 @@
 # Cardiff Onboarding MCP
 
-A local TypeScript MCP server that automates new-hire onboarding from a Google Sheet through Google Workspace, Salesforce, Slack, Gmail, and future integrations such as Zoom and Apple Business Manager.
+A local TypeScript MCP server that automates new-hire onboarding from a Google Sheet through Google Workspace, Salesforce, Slack, Gmail, and Zoom, with a planned and Apple Business Manager addition.
 
 The design is intentionally simple:
 
@@ -13,7 +13,7 @@ Preview / validation tools
         ↓
 Explicitly approved write tools
         ↓
-Google / Salesforce / Slack / Gmail APIs
+Google / Salesforce / Slack / Zoom / Gmail APIs
 ```
 
 The spreadsheet is the source of truth. Passwords are read only when needed, are never returned in normal MCP responses, and write actions require explicit confirmation.
@@ -44,6 +44,7 @@ Install:
 - Google Cloud access
 - Salesforce admin access
 - Slack Business+ admin access
+- Zoom Business+ admin access
 
 Clone the repo:
 
@@ -341,7 +342,7 @@ Client Credentials Flow must use your Salesforce My Domain URL.
 Correct:
 
 ```env
-SALESFORCE_LOGIN_URL=https://cardiff.my.salesforce.com
+SALESFORCE_LOGIN_URL=https://<company>.my.salesforce.com
 ```
 
 Do not use:
@@ -471,12 +472,6 @@ Template:
 
 ```text
 src/templates/slackInviteEmail.ts
-```
-
-The current Cardiff Slack URL is configured through:
-
-```env
-SLACK_WORKSPACE_URL=https://cardiff-duq1447.slack.com/
 ```
 
 The template can use a large HTML button for the Slack link.
