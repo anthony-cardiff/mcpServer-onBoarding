@@ -46,7 +46,6 @@ salesforce: {
 zoom: {
   accountRequired?: boolean;
   directLineRequired?: boolean;
-  smsRequired?: boolean;
 };
 
   credentialsAvailable: {

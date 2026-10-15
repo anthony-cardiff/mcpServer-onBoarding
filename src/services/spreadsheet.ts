@@ -360,12 +360,6 @@ export function mapRowToNewHire(
           ]
         ),
 
-      smsRequired:
-        parseBoolean(
-          row[
-            COLUMNS.zoomSmsRequired
-          ]
-        ),
     },
 
     // ======================

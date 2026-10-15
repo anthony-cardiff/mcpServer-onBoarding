@@ -252,7 +252,6 @@ SF Password
 Permission Set Groups
 Zoom
 Direct Line
-SMS
 Slack Password
 Location
 ```
@@ -504,13 +503,15 @@ Current tools:
 ```text
 preview_zoom_user
 create_zoom_user
+preview_zoom_phone_options
+provision_zoom_phone
 ```
 
 `preview_zoom_user` reads the live Rep Credentials row and checks:
 
 - Whether Zoom is required.
 - Whether the Cardiff email already exists in Zoom.
-- Whether Direct Line and SMS are requested.
+- Whether Direct Line is requested.
 - The employee job title.
 - The standard `Everyone` group configuration.
 
@@ -527,7 +528,7 @@ The create flow uses Zoom's normal `action: "create"` user creation path. This m
 
 A pending Zoom user is **not yet ready for Zoom Phone provisioning**. The MCP now tracks activation / phone-readiness state so the later phone workflow can wait until the account is active.
 
-Direct Line, calling-plan assignment, toll-number assignment, and SMS provisioning are intentionally being built as a separate Zoom Phone step.
+Direct Line, calling-plan assignment, and toll-number assignment are handled by the separate Zoom Phone tools.
 
 ---
 
@@ -607,6 +608,8 @@ send_slack_invite_email
 ```text
 preview_zoom_user
 create_zoom_user
+preview_zoom_phone_options
+provision_zoom_phone
 ```
 
 All write tools require an explicit confirmation input.
@@ -667,16 +670,62 @@ Recommended rules:
 
 # 16. Planned Integrations
 
-## Zoom Phone — TBA / In Progress
+## Zoom Phone
 
-Basic Zoom user creation is now **Working - Testing**. Remaining Zoom Phone work includes:
+`create_zoom_user` handles baseline account creation/settings only.
 
-```text
-verify activation / phone readiness
-assign calling plan
-assign direct line / toll number
-configure SMS
-```
+`preview_zoom_phone_options` takes `row` and an optional `phoneNumber`.
+With no number, it lists unassigned numbers whose source is exactly Zoom,
+type is Toll, and product is Zoom Phone. With a number, it validates only that
+number and the user's current assignments. No number-created timestamp is
+available, so the inventory preserves API order. Preview includes a read-only
+`messagingEnabled` boolean from Zoom's Messaging capability. It does not verify
+carrier delivery or change number eligibility.
+
+`provision_zoom_phone` requires `row`, `phoneNumber`, and `confirm: true`.
+It resolves the Zoom ID, validates the number and active user, ensures US/CA
+Unlimited (plan type 200), updates Display Name to the employee's first + last
+name, assigns the number, and verifies the result. Existing plan and same-number
+assignments are reused. Different existing numbers and numbers owned by another
+extension stop provisioning for review. Display Name must fit 32 characters.
+Caller ID Name must be set manually in Zoom. No new/existing choice or number-ID input is
+required.
+
+The spreadsheet's **Direct Line** flag controls phone provisioning. Its former
+SMS flag is no longer read by the server; the spreadsheet itself is unchanged.
+**SMS setup, LOA completion, and SMS campaign assignment are entirely manual in
+Zoom.** These tools do not collect authorization details, issue review tokens,
+check campaign membership, or call messaging/campaign APIs.
+
+New Zoom number acquisition is also manual: use area code **858** and city
+**All locations** in the portal, then provide the acquired phone number. The
+server does not select a number automatically or purchase subscriptions.
+
+Inventory is paginated. Missing assignment data is confirmed through the
+`assigned_to_type=PhoneUnassigned` lookup before treating a number as unassigned.
+Errors report completed phone steps without raw API bodies or credentials.
+There is no automatic rollback. Provisioning is serialized per user within a
+single server process; administrators or other server processes may still race.
+
+### Workflow regression checks
+
+Run `node tests/zoomPhoneWorkflow.mjs` for mocked phone workflow checks and
+`npx tsc --noEmit` for TypeScript validation. Tests use no live API requests or
+credentials.
+
+### Phone API permissions
+
+| Request | Granular admin scope |
+| --- | --- |
+| GET `/number_management/numbers` | `number_management:read:list_numbers:admin` |
+| GET `/number_management/numbers/{phoneNumberId}` | `number_management:read:numbers:admin` |
+| PATCH `/number_management/numbers/{phoneNumberId}` | `number_management:update:numbers:admin` |
+| GET `/phone/users/{userId}` | `phone:read:user:admin` |
+| POST `/phone/users/{userId}/calling_plans` | `phone:write:calling_plan:admin` |
+| POST `/phone/users/{userId}/phone_numbers` | `phone:write:user_number:admin` |
+
+Campaign and consent-policy scopes are not used. No Zoom app permissions are
+changed by this code update. Restart the MCP server after updating the code.
 
 ## Apple Business Manager — TBA
 
