@@ -1,6 +1,6 @@
 # Cardiff Onboarding MCP
 
-A local TypeScript MCP server that automates new-hire onboarding from a Google Sheet through Google Workspace, Salesforce, Slack, Gmail, and Zoom, with a planned and Apple Business Manager addition.
+A local TypeScript MCP server that automates new-hire onboarding from a Google Sheet through Google Workspace, Salesforce, Slack, Gmail, and Zoom, with Apple Business Manager account creation now in working - testing.
 
 The design is intentionally simple:
 
@@ -26,8 +26,8 @@ The spreadsheet is the source of truth. Passwords are read only when needed, are
 | Salesforce account creation / repair | Implemented + validated |
 | Slack SCIM provisioning | Implemented + validated |
 | Slack access email | Implemented + validated |
-| Zoom | Working - Testing |
-| Apple Business Manager | TBA |
+| Zoom + phone number provisioning | Implemented + validated |
+| Apple Business Manager | Working - Testing |
 | Full onboarding email / Calendar workflow | TBA |
 
 ---
@@ -134,7 +134,7 @@ GOOGLE_OAUTH_TOKEN_FILE=/absolute/path/oauth-token.json
 GOOGLE_WORKSPACE_DOMAIN=yourcompany.com
 
 # Salesforce
-SALESFORCE_LOGIN_URL=https://your-domain.my.salesforce.com
+SALESFORCE_LOGIN_URL=https://<company>.my.salesforce.com
 SALESFORCE_CLIENT_ID=<CONSUMER_KEY>
 SALESFORCE_CLIENT_SECRET=<CONSUMER_SECRET>
 
@@ -478,9 +478,11 @@ The template can use a large HTML button for the Slack link.
 ---
 
 
-# 11. Zoom Setup + User Provisioning
+# 11. Zoom Setup + User + Phone Number Provisioning
 
-Zoom currently uses a **Server-to-Server OAuth** app. The basic connection, user lookup, and user provisioning flow are working and still being tested before Zoom Phone automation is added.
+**Status: Implemented + validated**
+
+Zoom uses a **Server-to-Server OAuth** app. Account creation and phone number provisioning are fully integrated and successfully validated.
 
 Create a Zoom Marketplace **Server-to-Server OAuth** app and store its credentials in `.env`:
 
@@ -528,7 +530,64 @@ The create flow uses Zoom's normal `action: "create"` user creation path. This m
 
 A pending Zoom user is **not yet ready for Zoom Phone provisioning**. The MCP now tracks activation / phone-readiness state so the later phone workflow can wait until the account is active.
 
-Direct Line, calling-plan assignment, and toll-number assignment are handled by the separate Zoom Phone tools.
+Direct Line, calling-plan assignment, and toll-number assignment are handled by the Zoom Phone tools below.
+
+## Zoom Phone
+
+`create_zoom_user` handles baseline account creation/settings only.
+
+`preview_zoom_phone_options` takes `row` and an optional `phoneNumber`.
+With no number, it lists unassigned numbers whose source is exactly Zoom,
+type is Toll, and product is Zoom Phone. With a number, it validates only that
+number and the user's current assignments. No number-created timestamp is
+available, so the inventory preserves API order. Preview includes a read-only
+`messagingEnabled` boolean from Zoom's Messaging capability. It does not verify
+carrier delivery or change number eligibility.
+
+`provision_zoom_phone` requires `row`, `phoneNumber`, and `confirm: true`.
+It resolves the Zoom ID, validates the number and active user, ensures US/CA
+Unlimited (plan type 200), updates Display Name to the employee's first + last
+name, assigns the number, and verifies the result. Existing plan and same-number
+assignments are reused. Different existing numbers and numbers owned by another
+extension stop provisioning for review. Display Name must fit 32 characters.
+Caller ID Name must be set manually in Zoom. No new/existing choice or number-ID input is
+required.
+
+The spreadsheet's **Direct Line** flag controls phone provisioning. Its former
+SMS flag is no longer read by the server; the spreadsheet itself is unchanged.
+**SMS setup, LOA completion, and SMS campaign assignment are entirely manual in
+Zoom.** These tools do not collect authorization details, issue review tokens,
+check campaign membership, or call messaging/campaign APIs.
+
+New Zoom number acquisition is also manual: use area code **858** and city
+**All locations** in the portal, then provide the acquired phone number. The
+server does not select a number automatically or purchase subscriptions.
+
+Inventory is paginated. Missing assignment data is confirmed through the
+`assigned_to_type=PhoneUnassigned` lookup before treating a number as unassigned.
+Errors report completed phone steps without raw API bodies or credentials.
+There is no automatic rollback. Provisioning is serialized per user within a
+single server process; administrators or other server processes may still race.
+
+### Workflow regression checks
+
+Run `node tests/zoomPhoneWorkflow.mjs` for mocked phone workflow checks and
+`npx tsc --noEmit` for TypeScript validation. Tests use no live API requests or
+credentials.
+
+### Phone API permissions
+
+| Request | Granular admin scope |
+| --- | --- |
+| GET `/number_management/numbers` | `number_management:read:list_numbers:admin` |
+| GET `/number_management/numbers/{phoneNumberId}` | `number_management:read:numbers:admin` |
+| PATCH `/number_management/numbers/{phoneNumberId}` | `number_management:update:numbers:admin` |
+| GET `/phone/users/{userId}` | `phone:read:user:admin` |
+| POST `/phone/users/{userId}/calling_plans` | `phone:write:calling_plan:admin` |
+| POST `/phone/users/{userId}/phone_numbers` | `phone:write:user_number:admin` |
+
+Campaign and consent-policy scopes are not used. No Zoom app permissions are
+changed by this code update. Restart the MCP server after updating the code.
 
 ---
 
@@ -668,70 +727,13 @@ Recommended rules:
 
 ---
 
-# 16. Planned Integrations
+# 16. Apple Business Manager — Working - Testing
 
-## Zoom Phone
+Apple Business account creation is the current integration focus. Implementation and testing are in progress. The provisioning approach, configuration, and tools will be documented as testing confirms them.
 
-`create_zoom_user` handles baseline account creation/settings only.
+---
 
-`preview_zoom_phone_options` takes `row` and an optional `phoneNumber`.
-With no number, it lists unassigned numbers whose source is exactly Zoom,
-type is Toll, and product is Zoom Phone. With a number, it validates only that
-number and the user's current assignments. No number-created timestamp is
-available, so the inventory preserves API order. Preview includes a read-only
-`messagingEnabled` boolean from Zoom's Messaging capability. It does not verify
-carrier delivery or change number eligibility.
-
-`provision_zoom_phone` requires `row`, `phoneNumber`, and `confirm: true`.
-It resolves the Zoom ID, validates the number and active user, ensures US/CA
-Unlimited (plan type 200), updates Display Name to the employee's first + last
-name, assigns the number, and verifies the result. Existing plan and same-number
-assignments are reused. Different existing numbers and numbers owned by another
-extension stop provisioning for review. Display Name must fit 32 characters.
-Caller ID Name must be set manually in Zoom. No new/existing choice or number-ID input is
-required.
-
-The spreadsheet's **Direct Line** flag controls phone provisioning. Its former
-SMS flag is no longer read by the server; the spreadsheet itself is unchanged.
-**SMS setup, LOA completion, and SMS campaign assignment are entirely manual in
-Zoom.** These tools do not collect authorization details, issue review tokens,
-check campaign membership, or call messaging/campaign APIs.
-
-New Zoom number acquisition is also manual: use area code **858** and city
-**All locations** in the portal, then provide the acquired phone number. The
-server does not select a number automatically or purchase subscriptions.
-
-Inventory is paginated. Missing assignment data is confirmed through the
-`assigned_to_type=PhoneUnassigned` lookup before treating a number as unassigned.
-Errors report completed phone steps without raw API bodies or credentials.
-There is no automatic rollback. Provisioning is serialized per user within a
-single server process; administrators or other server processes may still race.
-
-### Workflow regression checks
-
-Run `node tests/zoomPhoneWorkflow.mjs` for mocked phone workflow checks and
-`npx tsc --noEmit` for TypeScript validation. Tests use no live API requests or
-credentials.
-
-### Phone API permissions
-
-| Request | Granular admin scope |
-| --- | --- |
-| GET `/number_management/numbers` | `number_management:read:list_numbers:admin` |
-| GET `/number_management/numbers/{phoneNumberId}` | `number_management:read:numbers:admin` |
-| PATCH `/number_management/numbers/{phoneNumberId}` | `number_management:update:numbers:admin` |
-| GET `/phone/users/{userId}` | `phone:read:user:admin` |
-| POST `/phone/users/{userId}/calling_plans` | `phone:write:calling_plan:admin` |
-| POST `/phone/users/{userId}/phone_numbers` | `phone:write:user_number:admin` |
-
-Campaign and consent-policy scopes are not used. No Zoom app permissions are
-changed by this code update. Restart the MCP server after updating the code.
-
-## Apple Business Manager — TBA
-
-Planned onboarding support may include Apple Business account creation or browser automation if the required operation is not exposed through an appropriate API.
-
-## Full Onboarding Email / Calendar — TBA
+# 17. Full Onboarding Email / Calendar — TBA
 
 A future workflow will be separate from the Slack access email and may include:
 
@@ -744,7 +746,7 @@ A future workflow will be separate from the Slack access email and may include:
 
 ---
 
-# 17. Recommended Development Pattern
+# 18. Recommended Development Pattern
 
 For every new integration, follow the same sequence:
 
@@ -759,4 +761,4 @@ For every new integration, follow the same sequence:
 8. Update this README
 ```
 
-That pattern has worked well for Google Workspace, Salesforce, Slack, and the current Zoom build and keeps onboarding automation safe and predictable.
+That pattern has worked well for Google Workspace, Salesforce, Slack, and Zoom and keeps onboarding automation safe and predictable.
