@@ -8,6 +8,7 @@ import { registerSalesforceUserTools } from "./tools/salesforceUser.js";
 import { registerSlackUserTools } from "./tools/slackUser.js";
 import { registerSlackInviteEmailTools } from "./tools/slackInviteEmail.js";
 import { registerZoomUserTools } from "./tools/zoomUser.js";
+import { registerZoomPhoneTools } from "./tools/zoomPhone.js";
 
 function createServer() {
   const server = new McpServer({
@@ -42,6 +43,7 @@ function createServer() {
   registerSlackUserTools(server);
   registerSlackInviteEmailTools(server);
   registerZoomUserTools(server);
+  registerZoomPhoneTools(server);
 
   return server;
 }

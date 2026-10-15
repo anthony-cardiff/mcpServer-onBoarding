@@ -39,7 +39,6 @@ export const COLUMNS = {
 
   zoomAccountRequired: "Zoom",
   zoomDirectLineRequired: "Direct Line",
-  zoomSmsRequired: "SMS",
 
 
     // ======================

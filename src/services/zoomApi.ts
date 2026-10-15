@@ -11,7 +11,7 @@ import {
  * a user already fetched by preview / verification.
  *
  * Phone readiness here checks activation only.
- * Phone licenses, Direct Line, and SMS are
+ * Phone licenses and Direct Line are
  * provisioned separately.
  */
 

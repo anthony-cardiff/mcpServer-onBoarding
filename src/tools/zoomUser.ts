@@ -125,13 +125,6 @@ export function registerZoomUserTools(
           );
 
 
-        const smsRequired =
-          Boolean(
-            employee.zoom
-              .smsRequired
-          );
-
-
         if (!zoomRequired) {
 
           const preview = {
@@ -148,7 +141,6 @@ export function registerZoomUserTools(
 
             directLineRequired,
 
-            smsRequired,
 
             readyToCreate:
               false,
@@ -257,7 +249,6 @@ export function registerZoomUserTools(
 
           directLineRequired,
 
-          smsRequired,
 
           standardConfiguration: {
             zoomWorkplace:
@@ -697,14 +688,8 @@ export function registerZoomUserTools(
                 .directLineRequired
             ),
 
-          smsRequired:
-            Boolean(
-              employee.zoom
-                .smsRequired
-            ),
-
           /*
-           * Direct Line and SMS are intentionally
+           * Direct Line is intentionally
            * not provisioned by this tool.
            *
            * We will handle Zoom Phone separately.
