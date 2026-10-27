@@ -5,6 +5,12 @@ import type {
 import * as z from "zod/v4";
 
 import {
+  assertAllowedSalesforcePermissionSetGroup,
+  assertAllowedSalesforceProfile,
+  resolveAllowedSalesforcePermissionSetGroup,
+} from "../config/salesforceAllowlist.js";
+
+import {
   getGoogleSheetRow,
 } from "../services/googleSheets.js";
 
@@ -192,6 +198,37 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
+         * VALIDATE SALESFORCE ALLOWLISTS
+         * ============================================
+         *
+         * Validate all requested access before
+         * Salesforce lookups or provisioning.
+         */
+
+        const requestedProfile =
+          employee.salesforce
+            .profile;
+
+
+        const requestedGroups =
+          (
+            employee.salesforce
+              .permissionSetGroups ??
+            []
+          ).map(
+            resolveAllowedSalesforcePermissionSetGroup
+          );
+
+
+        if (requestedProfile) {
+          assertAllowedSalesforceProfile(
+            requestedProfile
+          );
+        }
+
+
+        /*
+         * ============================================
          * CHECK SF PASSWORD
          * ============================================
          */
@@ -221,17 +258,19 @@ export function registerSalesforceUserTools(
          * ============================================
          */
 
-        const requestedProfile =
-          employee.salesforce
-            .profile;
-
-
         const profile =
           requestedProfile
             ? await findSalesforceProfileByName(
                 requestedProfile
               )
             : undefined;
+
+
+        if (profile) {
+          assertAllowedSalesforceProfile(
+            profile.Name
+          );
+        }
 
 
         /*
@@ -259,12 +298,6 @@ export function registerSalesforceUserTools(
          * ============================================
          */
 
-        const requestedGroups =
-          employee.salesforce
-            .permissionSetGroups ??
-          [];
-
-
         const resolvedGroups = [];
 
 
@@ -277,6 +310,13 @@ export function registerSalesforceUserTools(
             await findSalesforcePermissionSetGroup(
               groupName
             );
+
+
+          if (group) {
+            assertAllowedSalesforcePermissionSetGroup(
+              group.DeveloperName
+            );
+          }
 
 
           resolvedGroups.push({
@@ -598,6 +638,37 @@ export function registerSalesforceUserTools(
 
         /*
          * ============================================
+         * VALIDATE SALESFORCE ALLOWLISTS
+         * ============================================
+         *
+         * Validate all requested access before
+         * Salesforce lookups or provisioning.
+         */
+
+        const requestedProfile =
+          employee.salesforce
+            .profile;
+
+
+        const requestedGroups =
+          (
+            employee.salesforce
+              .permissionSetGroups ??
+            []
+          ).map(
+            resolveAllowedSalesforcePermissionSetGroup
+          );
+
+
+        if (requestedProfile) {
+          assertAllowedSalesforceProfile(
+            requestedProfile
+          );
+        }
+
+
+        /*
+         * ============================================
          * GET SALESFORCE PASSWORD
          * ============================================
          */
@@ -622,11 +693,6 @@ export function registerSalesforceUserTools(
          * ============================================
          */
 
-        const requestedProfile =
-          employee.salesforce
-            .profile;
-
-
         if (!requestedProfile) {
           throw new Error(
             `Row ${row} does not contain an SF Profile.`
@@ -643,6 +709,13 @@ export function registerSalesforceUserTools(
         if (!profile) {
           throw new Error(
             `Salesforce Profile "${requestedProfile}" was not found.`
+          );
+        }
+
+
+        if (profile) {
+          assertAllowedSalesforceProfile(
+            profile.Name
           );
         }
 
@@ -682,12 +755,6 @@ export function registerSalesforceUserTools(
          * ============================================
          */
 
-        const requestedGroups =
-          employee.salesforce
-            .permissionSetGroups ??
-          [];
-
-
         const permissionSetGroups = [];
 
 
@@ -707,6 +774,11 @@ export function registerSalesforceUserTools(
               `Salesforce Permission Set Group "${groupName}" was not found.`
             );
           }
+
+
+          assertAllowedSalesforcePermissionSetGroup(
+            group.DeveloperName
+          );
 
 
           permissionSetGroups.push(
