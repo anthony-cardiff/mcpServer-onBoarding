@@ -339,10 +339,7 @@ export async function findSalesforcePermissionSetGroup(
           MasterLabel,
           Status
         FROM PermissionSetGroup
-        WHERE
-          DeveloperName = '${escapedName}'
-          OR
-          MasterLabel = '${escapedName}'
+        WHERE DeveloperName = '${escapedName}'
         LIMIT 1
       `
     );
